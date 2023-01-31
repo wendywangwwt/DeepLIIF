@@ -20,7 +20,10 @@ from __future__ import absolute_import, division, print_function
 import numpy as np
 import os
 import gzip, pickle
-import tensorflow as tf
+# import tensorflow as tf
+import tensorflow.compat.v1 as tf
+tf.disable_v2_behavior()
+
 from imageio import imread
 from scipy import linalg
 import pathlib
@@ -43,6 +46,28 @@ def create_inception_graph(pth):
 
 # code for handling inception net derived from
 #   https://github.com/openai/improved-gan/blob/master/inception_score/model.py
+# def _get_inception_layer(sess):
+#     """Prepares inception net for batched usage and returns pool_3 layer. """
+#     layername = 'FID_Inception_Net/pool_3:0'
+#     pool3 = sess.graph.get_tensor_by_name(layername)
+#     ops = pool3.graph.get_operations()
+#     for op_idx, op in enumerate(ops):
+#         for o in op.outputs:
+#             shape = o.get_shape()
+#             if shape._dims is not None:
+#               #shape = [s.value for s in shape] TF 1.x
+#               shape = [s for s in shape] #TF 2.x
+#               new_shape = []
+#               for j, s in enumerate(shape):
+#                 if s == 1 and j == 0:
+#                   new_shape.append(None)
+#                 else:
+#                   new_shape.append(s)
+#               o.__dict__['_shape_val'] = tf.TensorShape(new_shape)
+#     return pool3
+
+# https://github.com/bioinf-jku/TTUR/issues/6#issuecomment-388902304
+# to address the shape inconcistency issue
 def _get_inception_layer(sess):
     """Prepares inception net for batched usage and returns pool_3 layer. """
     layername = 'FID_Inception_Net/pool_3:0'
@@ -51,9 +76,8 @@ def _get_inception_layer(sess):
     for op_idx, op in enumerate(ops):
         for o in op.outputs:
             shape = o.get_shape()
-            if shape._dims is not None:
-              #shape = [s.value for s in shape] TF 1.x
-              shape = [s for s in shape] #TF 2.x
+            if shape._dims != []:
+              shape = [s.value for s in shape]
               new_shape = []
               for j, s in enumerate(shape):
                 if s == 1 and j == 0:
@@ -85,6 +109,8 @@ def get_activations(images, sess, batch_size=50, verbose=False):
     if batch_size > n_images:
         print("warning: batch size is bigger than the data size. setting batch size to data size")
         batch_size = n_images
+    print(n_images)
+    print(batch_size)
     n_batches = n_images//batch_size # drops the last batch if < batch_size
     pred_arr = np.empty((n_batches * batch_size,2048))
     for i in range(n_batches):
@@ -291,9 +317,12 @@ def _handle_path(path, sess, low_profile=False):
     else:
         path = pathlib.Path(path)
         files = list(path.glob('*.jpg')) + list(path.glob('*.png'))
+    
         if low_profile:
             m, s = calculate_activation_statistics_from_files(files, sess)
         else:
+            if str(path).endswith('.jpg') or str(path).endswith('.png'):
+                files = [path]
             x = np.array([imread(str(fn)).astype(np.float32) for fn in files])
             m, s = calculate_activation_statistics(x, sess)
             del x #clean up memory
