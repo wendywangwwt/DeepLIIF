@@ -134,10 +134,11 @@ def load_eager_models(model_dir, devices):
         padding_type = param_dict['padding']
         modalities_no = int(param_dict['modalities_no'])
         seg_gen = (param_dict['seg_gen'] == 'True')
-    # print(param_dict)
+    
     param_dict['gpu_ids'] = 0
     norm_layer = get_norm_layer(norm_type=norm)
     nets = {}
+    
     for i in range(1, modalities_no + 1):
         n = 'G_' + str(i)
         net = ResnetGenerator(input_nc, output_nc, ngf, norm_layer=norm_layer, use_dropout=use_dropout, n_blocks=9, padding_type=padding_type)
@@ -242,8 +243,11 @@ def run_dask(img, model_path, param_dict, eager_mode=False):
     modalities_no = int(param_dict['modalities_no']) if param_dict else 4
     seg_gen = (param_dict['seg_gen'] == 'True') if param_dict else True
     # seg_weights = list(map(float, param_dict['seg_weights'])) if param_dict else [1 / 3] * (modalities_no + 1)
-
-    ts = transform(img.resize((512, 512)))
+    
+    print('img.size() in run_dask',img.size)
+    ts = transform(img.resize((1024, 1024)))
+    # ts = transform(img)
+    print('ts.size() in run_dask',ts.size())
 
     @delayed
     def forward(input, model):
@@ -258,6 +262,7 @@ def run_dask(img, model_path, param_dict, eager_mode=False):
     lazy_gens = {k: forward(ts, nets[k]) for k in seg_map}
     gens = compute(lazy_gens)[0]
     res = {k: tensor_to_pil(v) for k, v in gens.items()}
+    print('output from compute(lazy_gens) in run_dask',res['G_2'].size)
 
     if seg_gen:
         lazy_segs = {v: forward(torch.cat([ts.to(torch.device('cpu')), gens[next(iter(seg_map))].to(torch.device('cpu')), gens[k].to(torch.device('cpu'))], 1), nets[v]).to(torch.device('cpu')) for k, v in seg_map.items()}
@@ -292,12 +297,20 @@ def run_wrapper(tile, run_fn, model_path, param_dict, eager_mode=False):
         return run_fn(tile, model_path, param_dict, eager_mode)
 
 
-def inference(img, tile_size, overlap_size, model_path, eager_mode=False, use_torchserve=False):
+def inference(img, tile_size_center, tile_size, overlap_size, model_path, eager_mode=False, use_torchserve=False):
     param_dict = read_train_options(model_path)
     modalities_no = int(param_dict['modalities_no']) if param_dict else 4
     seg_gen = (param_dict['seg_gen'] == 'True') if param_dict else True
-
-    tiles = list(generate_tiles(img, tile_size, overlap_size))
+    overlap_size = int((tile_size - tile_size_center)/2)
+    
+    tiles = list(generate_tiles(img, tile_size_center, tile_size, overlap_size))
+    
+    import pickle
+    with open('/userfs/tiles_v2.p','wb') as f:
+        pickle.dump(tiles,f)
+        
+#     import sys
+#     sys.exit(1)
 
     run_fn = run_torchserve if use_torchserve else run_dask
     res = [Tile(t.i, t.j, run_wrapper(t.img, run_fn, model_path, param_dict, eager_mode)) for t in tiles]
@@ -308,11 +321,14 @@ def inference(img, tile_size, overlap_size, model_path, eager_mode=False, use_to
     images = {}
 
     for i in range(1, modalities_no + 1):
-        images['mod' + str(i)] = stitch(get_net_tiles('G_' + str(i)), tile_size, overlap_size).resize(img.size)
+        tiles_pred = get_net_tiles('G_' + str(i))
+        images['mod' + str(i)] = stitch(tiles_pred, tile_size_center, tile_size, overlap_size).resize(img.size)
+        with open('/userfs/tiles_pred_v2.p','wb') as f:
+            pickle.dump(tiles_pred,f)
 
     if seg_gen:
         for i in range(1, modalities_no + 1):
-            images['Seg' + str(i)] = stitch(get_net_tiles('GS_' + str(i)), tile_size, overlap_size).resize(img.size)
+            images['Seg' + str(i)] = stitch(get_net_tiles('GS_' + str(i)), tile_size_center, tile_size, overlap_size).resize(img.size)
 
     return images
 

@@ -54,38 +54,45 @@ def output_size(img, tile_size):
             max(round(img.height / tile_size) * tile_size, tile_size))
 
 
-def generate_tiles(img, tile_size, overlap_size):
+def generate_tiles(img, tile_size_center, tile_size, overlap_size):
     mean_background_val = calculate_background_mean_value(img)
-    img = img.resize(output_size(img, tile_size))
+    img = img.resize(output_size(img, tile_size_center))
+    print('img.size in generate_tiles',img.size)
+    print('overlap_size in generate_tiles',overlap_size)
+    
+    # Calcuate number of tiles per row/col based on the original img size & tile size center
+    # this number reflects the number of center piece needed per row/col to stitch back a full image
+    rows = int(img.height / tile_size_center)  # Number of tiles in the row
+    cols = int(img.width / tile_size_center)  # Number of tiles in the column
+    print('rows & cols in generate_tiles',rows,cols)
+    
     # Adding borders with size of given overlap around the whole slide image
     img = ImageOps.expand(img, border=overlap_size, fill=tuple(mean_background_val))
-    rows = int(img.height / tile_size)  # Number of tiles in the row
-    cols = int(img.width / tile_size)  # Number of tiles in the column
 
     # Generating the tiles
     for i in range(cols):
         for j in range(rows):
             yield Tile(j, i, img.crop((
-                i * tile_size, j * tile_size,
-                i * tile_size + tile_size + 2 * overlap_size,
-                j * tile_size + tile_size + 2 * overlap_size
+                i * tile_size_center, j * tile_size_center,
+                i * tile_size_center + tile_size_center + 2 * overlap_size,
+                j * tile_size_center + tile_size_center + 2 * overlap_size
             )))
 
 
-def stitch(tiles, tile_size, overlap_size):
+def stitch(tiles, tile_size_center, tile_size, overlap_size):
     rows = max(t.i for t in tiles) + 1
     cols = max(t.j for t in tiles) + 1
 
-    width = tile_size * cols
-    height = tile_size * rows
+    width = tile_size_center * cols
+    height = tile_size_center * rows
 
     new_im = Image.new('RGB', (width, height))
 
     for t in tiles:
-        img = t.img.resize((tile_size + 2 * overlap_size, tile_size + 2 * overlap_size))
-        img = img.crop((overlap_size, overlap_size, overlap_size + tile_size, overlap_size + tile_size))
+        img = t.img.resize((tile_size_center + 2 * overlap_size, tile_size_center + 2 * overlap_size))
+        img = img.crop((overlap_size, overlap_size, overlap_size + tile_size_center, overlap_size + tile_size_center))
 
-        new_im.paste(img, (t.j * tile_size, t.i * tile_size))
+        new_im.paste(img, (t.j * tile_size_center, t.i * tile_size_center))
 
     return new_im
 
