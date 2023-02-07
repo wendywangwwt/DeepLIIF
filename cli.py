@@ -543,18 +543,20 @@ def serialize(models_dir, output_dir, device, verbose):
 @cli.command()
 @click.option('--input-dir', default='./Sample_Large_Tissues/', help='reads images from here')
 @click.option('--output-dir', help='saves results here.')
-@click.option('--tile-size', required=True, type=int, help='tile size')
+@click.option('--tile-size-center', required=True, type=int, help='the tile size of the center piece that will be kept in the final stitched image; should be equal or smaller than --tile-size')
+@click.option('--tile-size', required=True, type=int, help='tile size that the model is trained on')
 @click.option('--model-dir', default='./model-server/DeepLIIF_Latest_Model/', help='load models from here.')
 @click.option('--region-size', default=20000, help='Due to limits in the resources, the whole slide image cannot be processed in whole.'
                                                    'So the WSI image is read region by region. '
                                                    'This parameter specifies the size each region to be read into GPU for inferrence.')
 @click.option('--eager-mode', is_flag=True, help='use eager mode (loading original models, otherwise serialized ones)')
-def test(input_dir, output_dir, tile_size, model_dir, region_size, eager_mode):
+def test(input_dir, output_dir, tile_size_center, tile_size, model_dir, region_size, eager_mode):
     
     """Test trained models
     """
     output_dir = output_dir or input_dir
     ensure_exists(output_dir)
+    assert tile_size_center <= tile_size, "--tile-size-center should be smaller than or equal to --tile-size"
 
     image_files = [fn for fn in os.listdir(input_dir) if allowed_file(fn)]
 
@@ -573,6 +575,7 @@ def test(input_dir, output_dir, tile_size, model_dir, region_size, eager_mode):
 
                 images = inference(
                     img,
+                    tile_size_center=tile_size_center,
                     tile_size=tile_size,
                     overlap_size=compute_overlap(img.size, tile_size),
                     model_path=model_dir,
