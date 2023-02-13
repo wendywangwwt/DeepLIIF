@@ -55,45 +55,72 @@ def output_size(img, tile_size):
 
 
 def generate_tiles(img, tile_size_center, tile_size, overlap_size):
-    mean_background_val = calculate_background_mean_value(img)
+    assert tile_size - overlap_size >= 0, f"the effective overlap size ({overlap_size}) should not be larger than tile size ({tile_size})"
+    # mean_background_val = calculate_background_mean_value(img)
     img = img.resize(output_size(img, tile_size_center))
     print('img.size in generate_tiles',img.size)
     print('overlap_size in generate_tiles',overlap_size)
     
-    # Calcuate number of tiles per row/col based on the original img size & tile size center
-    # this number reflects the number of center piece needed per row/col to stitch back a full image
-    rows = int(img.height / tile_size_center)  # Number of tiles in the row
-    cols = int(img.width / tile_size_center)  # Number of tiles in the column
-    print('rows & cols in generate_tiles',rows,cols)
-    
-    # Adding borders with size of given overlap around the whole slide image
-    img = ImageOps.expand(img, border=overlap_size, fill=tuple(mean_background_val))
+    rows = int((img.height - overlap_size * 2) / tile_size_center)  # Number of tiles in the row
+    cols = int((img.width - overlap_size * 2) / tile_size_center)  # Number of tiles in the column
 
     # Generating the tiles
     for i in range(cols):
         for j in range(rows):
             yield Tile(j, i, img.crop((
                 i * tile_size_center, j * tile_size_center,
-                i * tile_size_center + tile_size_center + 2 * overlap_size,
-                j * tile_size_center + tile_size_center + 2 * overlap_size
+                i * tile_size_center + tile_size,
+                j * tile_size_center + tile_size
             )))
 
 
 def stitch(tiles, tile_size_center, tile_size, overlap_size):
-    rows = max(t.i for t in tiles) + 1
-    cols = max(t.j for t in tiles) + 1
+    i_max = max(t.i for t in tiles)
+    j_max = max(t.j for t in tiles)
+    rows = i_max + 1
+    cols = j_max + 1
 
-    width = tile_size_center * cols
-    height = tile_size_center * rows
+    width = tile_size_center * cols + overlap_size * 2
+    height = tile_size_center * rows + overlap_size * 2
 
     new_im = Image.new('RGB', (width, height))
-
+    
+    # Example -
+    # image size 4096x4096, tile size 1024x1024, center tile size 512x512, overlap size hence 256, 
+    # 7 tiles per row/col, i_max = j_max = 6:
+    # - Crop Area (x of top-left point, y of top-left point, x of bottom right point, y of bottom right point):
+    #   1. corner tiles
+    #      top-left:     (0, 0, 512+256, 0+512+256)                      t.i = 0 & t.j = 0, (t.i > 0) = 0, (t.j > 0) = 0
+    #      bottom-left:  (0, 256, 512+256, 256+512+256)                  t.i = 6 & t.j = 0, (t.i > 0) = 1, (t.j > 0) = 0
+    #      top-right:    (256, 0, 256+512+256, 0+512+256)                t.i = 0 & t.j = 6, (t.i > 0) = 0, (t.j > 0) = 1
+    #      bottom-right: (256, 256, 256+512+256, 256+512+256)            t.i = 6 & t.j = 6, (t.i > 0) = 1, (t.j > 0) = 1
+    #   2. top/bottom/left/right tiles (not corner)
+    #      top:    (256, 0, 256+512, 0+512+256)      t.i = 0 & t.j in 1:5, (t.i > 0) = 0, (t.j > 0) = 1, (t.i % i_max == 0) = 1, (t.j % j_max == 0) = 0
+    #      bottom: (256, 256, 256+512, 256+512+256)  t.i = 6 & t.j in 1:5, (t.i > 0) = 1, (t.j > 0) = 1, (t.i % i_max == 0) = 1, (t.j % j_max == 0) = 0
+    #      left:   (0, 256, 0+512+256, 256+512)      t.i in 1:5 & t.j = 0, (t.i > 0) = 1, (t.j > 0) = 0, (t.i % i_max == 0) = 0, (t.j % j_max == 0) = 1
+    #      right:  (256, 256, 256+512+256, 256+512)  t.i in 1:5 & t.j = 6, (t.i > 0) = 1, (t.j > 0) = 1, (t.i % i_max == 0) = 0, (t.j % j_max == 0) = 1
+    #   3. inner tiles
+    #      (256, 256, 256+512, 256+512)
+    # - Paste Location:
+    #   1. corner tiles
+    #      top-left:     (0, 0)                  t.i = 0 & t.j = 0, (t.i > 0) = 0, (t.j > 0) = 0
+    #      bottom-left:  (0, 6*512+256)          t.i = 6 & t.j = 0, (t.i > 0) = 1, (t.j > 0) = 0
+    #      top-right:    (6*512+256, 0)          t.i = 0 & t.j = 6, (t.i > 0) = 0, (t.j > 0) = 1
+    #      bottom-right: (6*512+256, 6*512+256)  t.i = 6 & t.j = 6, (t.i > 0) = 1, (t.j > 0) = 1
+    #   2. top/bottom/left/right tiles (not corner)
+    #      top:    (t.j*512+256, 0)              t.i = 0 & t.j in 1:5, (t.i > 0) = 0, (t.j > 0) = 1
+    #      bottom: (t.j*512+256, 6*512+256)      t.i = 6 & t.j in 1:5, (t.i > 0) = 1, (t.j > 0) = 1
+    #      left:   (0, t.i*512+256)              t.i in 1:5 & t.j = 0, (t.i > 0) = 1, (t.j > 0) = 0
+    #      right:  (6*512+256, t.i*512+256)      t.i in 1:5 & t.j = 6, (t.i > 0) = 1, (t.j > 0) = 1
+    #   3. inner tiles
     for t in tiles:
-        img = t.img.resize((tile_size_center + 2 * overlap_size, tile_size_center + 2 * overlap_size))
-        img = img.crop((overlap_size, overlap_size, overlap_size + tile_size_center, overlap_size + tile_size_center))
-
-        new_im.paste(img, (t.j * tile_size_center, t.i * tile_size_center))
-
+        # if (t.i % i_max == 0 or t.j % j_max == 0): # i is either 0 or max, OR j is either 0 or max; this matches the outer tiles
+        img = t.img.crop(((t.j > 0) * overlap_size, (t.i > 0) * overlap_size,
+                          (t.j > 0) * overlap_size + tile_size_center + (t.j % j_max == 0) * overlap_size, 
+                          (t.i > 0) * overlap_size + tile_size_center + (t.i % i_max == 0) * overlap_size))
+        new_im.paste(img, (t.j * tile_size_center + (t.j > 0) * overlap_size, 
+                           t.i * tile_size_center + (t.i > 0) * overlap_size))
+        print(f"{t.i},{t.j}: {((t.j > 0) * overlap_size, (t.i > 0) * overlap_size, tile_size_center + (t.j % j_max == 0) * overlap_size, tile_size_center + (t.i % i_max == 0) * overlap_size)}, {(t.j * tile_size_center + (t.j > 0) * overlap_size, t.i * tile_size_center + (t.i > 0) * overlap_size)}")
     return new_im
 
 

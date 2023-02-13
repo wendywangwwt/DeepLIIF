@@ -303,11 +303,10 @@ def inference(img, tile_size_center, tile_size, overlap_size, model_path, eager_
     seg_gen = (param_dict['seg_gen'] == 'True') if param_dict else True
     overlap_size = int((tile_size - tile_size_center)/2)
     
-    id_offset = 1000000 # this should be an unpractically large number
-    tiles = list(generate_tiles(img, tile_size_center, tile_size, overlap_size,id_offset))
+    tiles = list(generate_tiles(img, tile_size_center, tile_size, overlap_size))
     
     import pickle
-    with open('/userfs/tiles_v3.p','wb') as f:
+    with open('/userfs/tiles_v4.p','wb') as f:
         pickle.dump(tiles,f)
         
     # import sys
@@ -323,13 +322,13 @@ def inference(img, tile_size_center, tile_size, overlap_size, model_path, eager_
 
     for i in range(1, modalities_no + 1):
         tiles_pred = get_net_tiles('G_' + str(i))
-        images['mod' + str(i)] = stitch(tiles_pred, tile_size_center, tile_size, overlap_size, id_offset).resize(img.size)
+        images['mod' + str(i)] = stitch(tiles_pred, tile_size_center, tile_size, overlap_size).resize(img.size)
         with open('/userfs/tiles_pred_v2.p','wb') as f:
             pickle.dump(tiles_pred,f)
 
     if seg_gen:
         for i in range(1, modalities_no + 1):
-            images['Seg' + str(i)] = stitch(get_net_tiles('GS_' + str(i)), tile_size_center, tile_size, overlap_size, id_offset).resize(img.size)
+            images['Seg' + str(i)] = stitch(get_net_tiles('GS_' + str(i)), tile_size_center, tile_size, overlap_size).resize(img.size)
 
     return images
 
