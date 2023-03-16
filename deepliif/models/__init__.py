@@ -183,6 +183,7 @@ def init_nets(model_dir, eager_mode=False):
 
 
 def compute_overlap(img_size, tile_size):
+    print(img_size,tile_size)
     w, h = img_size
     if round(w / tile_size) == 1 and round(h / tile_size) == 1:
         return 0
@@ -260,11 +261,12 @@ def run_wrapper(tile, run_fn, model_path, eager_mode=False):
         return run_fn(tile, model_path, eager_mode)
 
 
-def inference(img, tile_size, overlap_size, model_path, use_torchserve=False, eager_mode=False,
+def inference(img, tile_size_center, tile_size, overlap_size, model_path, use_torchserve=False, eager_mode=False,
               color_dapi=False, color_marker=False):
-
+    overlap_size = int((tile_size - tile_size_center)/2)
+    print(f"img size: {img.size}, tile_size_center: {tile_size_center}, tile_size: {tile_size}, overlap_size: {overlap_size}")
     
-    tiles = list(generate_tiles(img, tile_size, overlap_size))
+    tiles = list(generate_tiles(img, tile_size_center, tile_size, overlap_size))
 
     run_fn = run_torchserve if use_torchserve else run_dask
     # res = [Tile(t.i, t.j, run_fn(t.img, model_path)) for t in tiles]
@@ -275,7 +277,7 @@ def inference(img, tile_size, overlap_size, model_path, use_torchserve=False, ea
 
     images = {}
 
-    images['Hema'] = stitch(get_net_tiles('G1'), tile_size, overlap_size).resize(img.size)
+    images['Hema'] = stitch(get_net_tiles('G1'), tile_size_center, tile_size, overlap_size).resize(img.size)
 
     # images['DAPI'] = stitch(
     #     [Tile(t.i, t.j, adjust_background_tile(dt.img))
@@ -285,13 +287,13 @@ def inference(img, tile_size, overlap_size, model_path, use_torchserve=False, ea
     # dapi_pix[:, :, 0] = 0
     # images['DAPI'] = Image.fromarray(dapi_pix)
 
-    images['DAPI'] = stitch(get_net_tiles('G2'), tile_size, overlap_size).resize(img.size)
+    images['DAPI'] = stitch(get_net_tiles('G2'), tile_size_center, tile_size, overlap_size).resize(img.size)
     dapi_pix = np.array(images['DAPI'].convert('L').convert('RGB'))
     if color_dapi:
       dapi_pix[:, :, 0] = 0
     images['DAPI'] = Image.fromarray(dapi_pix)
-    images['Lap2'] = stitch(get_net_tiles('G3'), tile_size, overlap_size).resize(img.size)
-    images['Marker'] = stitch(get_net_tiles('G4'), tile_size, overlap_size).resize(img.size)
+    images['Lap2'] = stitch(get_net_tiles('G3'), tile_size_center, tile_size, overlap_size).resize(img.size)
+    images['Marker'] = stitch(get_net_tiles('G4'), tile_size_center,tile_size, overlap_size).resize(img.size)
     marker_pix = np.array(images['Marker'].convert('L').convert('RGB'))
     if color_marker:
       marker_pix[:, :, 2] = 0
@@ -302,7 +304,7 @@ def inference(img, tile_size, overlap_size, model_path, use_torchserve=False, ea
     #      for t, kt in zip(tiles, get_net_tiles('G4'))],
     #     tile_size, overlap_size).resize(img.size)
 
-    images['Seg'] = stitch(get_net_tiles('G5'), tile_size, overlap_size).resize(img.size)
+    images['Seg'] = stitch(get_net_tiles('G5'), tile_size_center, tile_size, overlap_size).resize(img.size)
 
     return images
 
@@ -325,7 +327,7 @@ def postprocess(img, seg_img, thresh=80, noise_objects_size=20, small_object_siz
     return images, scoring
 
 
-def infer_modalities(img, tile_size, model_dir, eager_mode=False,
+def infer_modalities(img, tile_size_center, tile_size, model_dir, eager_mode=False,
                      color_dapi=False, color_marker=False):
     """
     This function is used to infer modalities for the given image using a trained model.
@@ -341,6 +343,7 @@ def infer_modalities(img, tile_size, model_dir, eager_mode=False,
 
     images = inference(
         img,
+        tile_size_center=tile_size_center,
         tile_size=tile_size,
         overlap_size=compute_overlap(img.size, tile_size),
         model_path=model_dir,
