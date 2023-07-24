@@ -469,10 +469,11 @@ def trainlaunch(**kwargs):
 @cli.command()
 @click.option('--models-dir', default='./model-server/DeepLIIF_Latest_Model', help='reads models from here')
 @click.option('--output-dir', help='saves results here.')
+@click.option('--model', default=None, help='model class, DeepLIIF / DeepLIIFExt')
 @click.option('--tile-size', type=int, default=None, help='tile size')
 @click.option('--device', default='cpu', type=str, help='device to load model, either cpu or gpu')
 @click.option('--verbose', default=0, type=int,help='saves results here.')
-def serialize(models_dir, output_dir, tile_size, device, verbose):
+def serialize(models_dir, output_dir, model, tile_size, device, verbose):
     """Serialize DeepLIIF models using Torchscript
     """
     if tile_size is None:
@@ -507,8 +508,8 @@ def serialize(models_dir, output_dir, tile_size, device, verbose):
     
     # test: whether the original and the serialized model produces highly similar predictions
     print('testing similarity between prediction from original vs serialized models...')
-    models_original = init_nets(models_dir,eager_mode=True)
-    models_serialized = init_nets(output_dir,eager_mode=False)
+    models_original = init_nets(models_dir,eager_mode=True,phase='test')
+    models_serialized = init_nets(output_dir,eager_mode=False,phase='test')
     if device == 'gpu':
         sample = sample.cuda()
     else:
@@ -529,14 +530,13 @@ def serialize(models_dir, output_dir, tile_size, device, verbose):
 @click.option('--output-dir', help='saves results here.')
 @click.option('--tile-size', default=None, help='tile size')
 @click.option('--model-dir', default='./model-server/DeepLIIF_Latest_Model/', help='load models from here.')
-@click.option('--model', default='DeepLIIF', help='name of model class')
 @click.option('--region-size', default=20000, help='Due to limits in the resources, the whole slide image cannot be processed in whole.'
                                                    'So the WSI image is read region by region. '
                                                    'This parameter specifies the size each region to be read into GPU for inferrence.')
 @click.option('--eager-mode', is_flag=True, help='use eager mode (loading original models, otherwise serialized ones)')
 @click.option('--color-dapi', is_flag=True, help='color dapi image to produce the same coloring as in the paper')
 @click.option('--color-marker', is_flag=True, help='color marker image to produce the same coloring as in the paper')
-def test(input_dir, output_dir, tile_size, model_dir, model, region_size, eager_mode,
+def test(input_dir, output_dir, tile_size, model_dir, region_size, eager_mode,
          color_dapi, color_marker):
     
     """Test trained models
@@ -550,8 +550,6 @@ def test(input_dir, output_dir, tile_size, model_dir, model, region_size, eager_
     opt = Options(path_file=os.path.join(model_dir,'train_opt.txt'), mode='test')
     
     # fix opt from old settings
-    if hasattr(opt,'model') is None or getattr(opt,'model') != model:
-        opt.model = model
     if not hasattr(opt,'modalities_no') and hasattr(opt,'targets_no'):
         opt.modalities_no = opt.targets_no - 1
         del opt.targets_no
