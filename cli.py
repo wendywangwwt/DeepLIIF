@@ -25,6 +25,8 @@ import sys
 import pickle
 
 
+
+
 def set_seed(seed=0,rank=None):
     """
     seed: basic seed
@@ -469,11 +471,10 @@ def trainlaunch(**kwargs):
 @cli.command()
 @click.option('--models-dir', default='./model-server/DeepLIIF_Latest_Model', help='reads models from here')
 @click.option('--output-dir', help='saves results here.')
-@click.option('--model', default=None, help='model class, DeepLIIF / DeepLIIFExt')
 @click.option('--tile-size', type=int, default=None, help='tile size')
 @click.option('--device', default='cpu', type=str, help='device to load model, either cpu or gpu')
 @click.option('--verbose', default=0, type=int,help='saves results here.')
-def serialize(models_dir, output_dir, model, tile_size, device, verbose):
+def serialize(models_dir, output_dir, tile_size, device, verbose):
     """Serialize DeepLIIF models using Torchscript
     """
     if tile_size is None:
@@ -530,13 +531,14 @@ def serialize(models_dir, output_dir, model, tile_size, device, verbose):
 @click.option('--output-dir', help='saves results here.')
 @click.option('--tile-size', default=None, help='tile size')
 @click.option('--model-dir', default='./model-server/DeepLIIF_Latest_Model/', help='load models from here.')
+@click.option('--gpu-ids', type=int, multiple=True, help='gpu-ids 0 gpu-ids 1 or gpu-ids -1 for CPU')
 @click.option('--region-size', default=20000, help='Due to limits in the resources, the whole slide image cannot be processed in whole.'
                                                    'So the WSI image is read region by region. '
                                                    'This parameter specifies the size each region to be read into GPU for inferrence.')
 @click.option('--eager-mode', is_flag=True, help='use eager mode (loading original models, otherwise serialized ones)')
 @click.option('--color-dapi', is_flag=True, help='color dapi image to produce the same coloring as in the paper')
 @click.option('--color-marker', is_flag=True, help='color marker image to produce the same coloring as in the paper')
-def test(input_dir, output_dir, tile_size, model_dir, region_size, eager_mode,
+def test(input_dir, output_dir, tile_size, model_dir, gpu_ids, region_size, eager_mode,
          color_dapi, color_marker):
     
     """Test trained models
@@ -548,13 +550,14 @@ def test(input_dir, output_dir, tile_size, model_dir, region_size, eager_mode,
     files = os.listdir(model_dir)
     assert 'train_opt.txt' in files, f'file train_opt.txt is missing from model directory {model_dir}'
     opt = Options(path_file=os.path.join(model_dir,'train_opt.txt'), mode='test')
+    opt.gpu_ids = gpu_ids # overwrite gpu_ids; for test command, default gpu_ids is []
     
     # fix opt from old settings
     if not hasattr(opt,'modalities_no') and hasattr(opt,'targets_no'):
         opt.modalities_no = opt.targets_no - 1
         del opt.targets_no
     print_options(opt)
-
+    
     with click.progressbar(
             image_files,
             label=f'Processing {len(image_files)} images',
@@ -580,6 +583,7 @@ def test(input_dir, output_dir, tile_size, model_dir, region_size, eager_mode,
                         filename.replace('.' + filename.split('.')[-1], f'.json')
                 ), 'w') as f:
                     json.dump(scoring, f, indent=2)
+
 
 @cli.command()
 @click.option('--input-dir', type=str, required=True, help='Path to input images')

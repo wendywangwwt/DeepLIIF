@@ -44,6 +44,7 @@ from .DeepLIIF_model import DeepLIIFModel
 from .DeepLIIFExt_model import DeepLIIFExtModel
 
 
+
 @lru_cache
 def get_opt(model_dir, mode='test'):
     """
@@ -161,18 +162,18 @@ def init_nets(model_dir, eager_mode=False, opt=None, phase='test'):
     else:
         raise Exception(f'init_nets() not implemented for model {opt.model}')
 
-    number_of_gpus = torch.cuda.device_count()
-    # number_of_gpus = 0
+    number_of_gpus = len(opt.gpu_ids)#torch.cuda.device_count()
+    mapping_gpu_ids = {i:idx for i,idx in enumerate(opt.gpu_ids)}
     if number_of_gpus:
         chunks = [itertools.chain.from_iterable(c) for c in chunker(net_groups, number_of_gpus)]
-        # chunks = chunks[1:]
-        devices = {n: torch.device(f'cuda:{i}') for i, g in enumerate(chunks) for n in g}
+        
+        devices = {n: torch.device(f'cuda:{mapping_gpu_ids[i]}') for i, g in enumerate(chunks) for n in g}
     else:
         devices = {n: torch.device('cpu') for n in itertools.chain.from_iterable(net_groups)}
 
     if eager_mode:
         return load_eager_models(opt)
-
+    print(devices)
     return {
         n: load_torchscript_model(os.path.join(model_dir, f'{n}.pt'), device=d)
         for n, d in devices.items()
@@ -214,11 +215,13 @@ def run_torchserve(img, model_path=None, eager_mode=False, opt=None):
 def run_dask(img, model_path, eager_mode=False, opt=None):
     model_dir = os.getenv('DEEPLIIF_MODEL_DIR', model_path)
     nets = init_nets(model_dir, eager_mode, opt)
-
+    
+    # TODO: check which option is for tile size, or pass tile size over
     ts = transform(img.resize((512, 512)))
 
     @delayed
     def forward(input, model):
+        
         with torch.no_grad():
             return model(input.to(next(model.parameters()).device))
     
@@ -228,14 +231,15 @@ def run_dask(img, model_path, eager_mode=False, opt=None):
         lazy_gens = {k: forward(ts, nets[k]) for k in seg_map}
         gens = compute(lazy_gens)[0]
         
+        res = {k: tensor_to_pil(v) for k, v in gens.items()}
+        
         lazy_segs = {v: forward(gens[k], nets[v]).to(torch.device('cpu')) for k, v in seg_map.items()}
         lazy_segs['G51'] = forward(ts, nets['G51']).to(torch.device('cpu'))
         segs = compute(lazy_segs)[0]
     
         seg_weights = [0.25, 0.25, 0.25, 0, 0.25]
         seg = torch.stack([torch.mul(n, w) for n, w in zip(segs.values(), seg_weights)]).sum(dim=0)
-    
-        res = {k: tensor_to_pil(v) for k, v in gens.items()}
+        
         res['G5'] = tensor_to_pil(seg)
     
         return res
@@ -251,7 +255,7 @@ def run_dask(img, model_path, eager_mode=False, opt=None):
             lazy_segs = {v: forward(torch.cat([ts.to(torch.device('cpu')), gens[next(iter(seg_map))].to(torch.device('cpu')), gens[k].to(torch.device('cpu'))], 1), nets[v]).to(torch.device('cpu')) for k, v in seg_map.items()}
             segs = compute(lazy_segs)[0]
             res.update({k: tensor_to_pil(v) for k, v in segs.items()})
-    
+            
         return res
     else:
         raise Exception(f'run_dask() not implemented for {opt.model}')
@@ -278,8 +282,8 @@ def run_wrapper(tile, run_fn, model_path, eager_mode=False, opt=None):
             return run_fn(tile, model_path, eager_mode, opt)
     elif opt.model == 'DeepLIIFExt':
         if is_empty(tile):
-            res = {'G_' + str(i): Image.new(mode='RGB', size=(512, 512)) for i in range(1, opt.modalities_no + 1)}
-            res.update({'GS_' + str(i): Image.new(mode='RGB', size=(512, 512)) for i in range(1, opt.modalities_no + 1)})
+            res = {'G_' + str(i): Image.new(mode='RGB', size=(1024, 1024)) for i in range(1, opt.modalities_no + 1)}
+            res.update({'GS_' + str(i): Image.new(mode='RGB', size=(1024, 1024)) for i in range(1, opt.modalities_no + 1)})
             return res
         else:
             return run_fn(tile, model_path, eager_mode, opt)
@@ -383,23 +387,17 @@ def inference(img, tile_size, overlap_size, model_path, use_torchserve=False, ea
         return images
         
     elif opt.model == 'DeepLIIFExt':
-        #param_dict = read_train_options(model_path)
-        #modalities_no = int(param_dict['modalities_no']) if param_dict else 4
-        #seg_gen = (param_dict['seg_gen'] == 'True') if param_dict else True
-    
         tiles = list(generate_tiles(img, tile_size, overlap_size))
-    
         run_fn = run_torchserve if use_torchserve else run_dask
         res = [Tile(t.i, t.j, run_wrapper(t.img, run_fn, model_path, eager_mode, opt)) for t in tiles]
-    
+        
         def get_net_tiles(n):
             return [Tile(t.i, t.j, t.img[n]) for t in res]
     
         images = {}
-    
         for i in range(1, opt.modalities_no + 1):
             images['mod' + str(i)] = stitch(get_net_tiles('G_' + str(i)), tile_size, overlap_size).resize(img.size)
-    
+            
         if opt.seg_gen:
             for i in range(1, opt.modalities_no + 1):
                 images['Seg' + str(i)] = stitch(get_net_tiles('GS_' + str(i)), tile_size, overlap_size).resize(img.size)

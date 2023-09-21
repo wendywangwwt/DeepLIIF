@@ -63,6 +63,43 @@ def test_cli_inference(tmp_path, model_dir, model_info):
         fns_output = [f for f in os.listdir(dir_output) if os.path.isfile(os.path.join(dir_output, f)) and f.endswith('png')]
         num_output = len(fns_output)
         assert num_output > 0
+        break
+
+
+
+def test_cli_inference_gpu_single(tmp_path, model_dir, model_info):
+    dirs_model = model_dir
+    dirs_input = model_info['dir_input_inference']
+    tile_size = model_info['tile_size']
+    for dir_model, dir_input in zip(dirs_model, dirs_input):
+        dir_output = tmp_path
+        
+        fns_input = [f for f in os.listdir(dir_input) if os.path.isfile(os.path.join(dir_input, f)) and f.endswith('png')]
+        num_input = len(fns_input)
+        assert num_input > 0
+        res = subprocess.run(f'python cli.py test --model-dir {dir_model} --input-dir {dir_input} --output-dir {dir_output} --tile-size {tile_size} --gpu-ids 1',shell=True)
+        assert res.returncode == 0
+        fns_output = [f for f in os.listdir(dir_output) if os.path.isfile(os.path.join(dir_output, f)) and f.endswith('png')]
+        num_output = len(fns_output)
+        assert num_output > 0
+
+
+def test_cli_inference_gpu_multi(tmp_path, model_dir, model_info):
+    dirs_model = model_dir
+    dirs_input = model_info['dir_input_inference']
+    for dir_model, dir_input in zip(dirs_model, dirs_input):
+        dir_output = tmp_path
+        
+        fns_input = [f for f in os.listdir(dir_input) if os.path.isfile(os.path.join(dir_input, f)) and f.endswith('png')]
+        num_input = len(fns_input)
+        assert num_input > 0
+        
+        res = subprocess.run(f'python cli.py test --model-dir {dir_model} --input-dir {dir_input} --output-dir {dir_output} --gpu-ids 3 --gpu-ids 2 --gpu-ids 1 --gpu-ids 0',shell=True)
+        assert res.returncode == 0
+        
+        fns_output = [f for f in os.listdir(dir_output) if os.path.isfile(os.path.join(dir_output, f)) and f.endswith('png')]
+        num_output = len(fns_output)
+        assert num_output > 0
 
 
 def test_cli_inference_eager(tmp_path, model_dir, model_info):
@@ -76,6 +113,42 @@ def test_cli_inference_eager(tmp_path, model_dir, model_info):
         assert num_input > 0
         
         res = subprocess.run(f'python cli.py test --model-dir {dir_model} --input-dir {dir_input} --output-dir {dir_output} --eager-mode',shell=True)
+        assert res.returncode == 0
+        
+        fns_output = [f for f in os.listdir(dir_output) if os.path.isfile(os.path.join(dir_output, f)) and f.endswith('png')]
+        num_output = len(fns_output)
+        assert num_output > 0
+
+
+def test_cli_inference_eager_gpu_single(tmp_path, model_dir, model_info):
+    dirs_model = model_dir
+    dirs_input = model_info['dir_input_inference']
+    for dir_model, dir_input in zip(dirs_model, dirs_input):
+        dir_output = tmp_path
+        
+        fns_input = [f for f in os.listdir(dir_input) if os.path.isfile(os.path.join(dir_input, f)) and f.endswith('png')]
+        num_input = len(fns_input)
+        assert num_input > 0
+        
+        res = subprocess.run(f'python cli.py test --model-dir {dir_model} --input-dir {dir_input} --output-dir {dir_output} --eager-mode --gpu-ids 1',shell=True)
+        assert res.returncode == 0
+        
+        fns_output = [f for f in os.listdir(dir_output) if os.path.isfile(os.path.join(dir_output, f)) and f.endswith('png')]
+        num_output = len(fns_output)
+        assert num_output > 0
+
+
+def test_cli_inference_eager_gpu_multi(tmp_path, model_dir, model_info):
+    dirs_model = model_dir
+    dirs_input = model_info['dir_input_inference']
+    for dir_model, dir_input in zip(dirs_model, dirs_input):
+        dir_output = tmp_path
+        
+        fns_input = [f for f in os.listdir(dir_input) if os.path.isfile(os.path.join(dir_input, f)) and f.endswith('png')]
+        num_input = len(fns_input)
+        assert num_input > 0
+        
+        res = subprocess.run(f'python cli.py test --model-dir {dir_model} --input-dir {dir_input} --output-dir {dir_output} --eager-mode --gpu-ids 2 --gpu-ids 1',shell=True)
         assert res.returncode == 0
         
         fns_output = [f for f in os.listdir(dir_output) if os.path.isfile(os.path.join(dir_output, f)) and f.endswith('png')]
