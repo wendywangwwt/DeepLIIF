@@ -223,7 +223,8 @@ def train(dataroot, name, gpu_ids, checkpoints_dir, input_nc, output_nc, ngf, nd
             seg_no = 0
     else: # SDG
         seg_no = 0
-    
+        seg_gen = False
+        
     d_params = locals()
 
     if gpu_ids and gpu_ids[0] == -1:

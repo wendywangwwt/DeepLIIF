@@ -34,9 +34,6 @@ class SDGModel(BaseModel):
             self.model_names = []
             for i in range(1, self.opt.modalities_no + 1):
                 self.model_names.extend(['G' + str(i), 'D' + str(i)])
-            if self.opt.seg_gen:
-                for i in range(1, self.opt.modalities_no + self.opt.input_no + 1):
-                    self.model_names.extend(['G5' + str(i), 'D5' + str(i)])
         else:  # during test time, only load G
             self.model_names = []
             for i in range(1, self.opt.modalities_no + 1):
@@ -49,19 +46,11 @@ class SDGModel(BaseModel):
         for i in range(1, self.opt.modalities_no + 1):
             setattr(self, f'netG{i}', networks.define_G(opt.input_nc*opt.input_no, opt.output_nc, opt.ngf, opt.netG, opt.norm,
                                       not opt.no_dropout, opt.init_type, opt.init_gain, self.gpu_ids, opt.padding))
-        if self.opt.seg_gen:
-            for i in range(1, self.opt.modalities_no + self.opt.input_no + 1):
-                setattr(self, f'netG5{i}', networks.define_G(opt.input_nc*opt.input_no, opt.output_nc, opt.ngf, 'unet_512', opt.norm,
-                                          not opt.no_dropout, opt.init_type, opt.init_gain, self.gpu_ids))
 
         if self.is_train:  # define a discriminator; conditional GANs need to take both input and output images; Therefore, #channels for D is input_nc + output_nc
             for i in range(1, self.opt.modalities_no + 1):
                 setattr(self, f'netD{i}', networks.define_D(opt.input_nc*opt.input_no + opt.output_nc , opt.ndf, opt.netD,
                                           opt.n_layers_D, opt.norm, opt.init_type, opt.init_gain, self.gpu_ids))
-            if self.opt.seg_gen:
-                for i in range(1, self.opt.modalities_no + self.opt.input_no + 1):
-                    setattr(self, f'netD5{i}', networks.define_D(opt.input_nc*opt.input_no + opt.output_nc, opt.ndf, opt.netD,
-                                              opt.n_layers_D, opt.norm, opt.init_type, opt.init_gain, self.gpu_ids))
 
         if self.is_train:
             # define loss functions
@@ -75,9 +64,6 @@ class SDGModel(BaseModel):
                     params += list(getattr(self,f'netG{i}').parameters())
                 except:
                     params = list(getattr(self,f'netG{i}').parameters())
-            if self.opt.seg_gen:
-                for i in range(1, self.opt.modalities_no + self.opt.input_no + 1):
-                        params += list(getattr(self,f'netG5{i}').parameters())
             #params = list(self.netG1.parameters()) + list(self.netG2.parameters()) + list(self.netG3.parameters()) + list(self.netG4.parameters()) + list(self.netG51.parameters()) + list(self.netG52.parameters()) + list(self.netG53.parameters()) + list(self.netG54.parameters()) + list(self.netG55.parameters())
             self.optimizer_G = torch.optim.Adam(params, lr=opt.lr, betas=(opt.beta1, 0.999))
             del params
@@ -87,9 +73,6 @@ class SDGModel(BaseModel):
                     params += list(getattr(self,f'netD{i}').parameters())
                 except:
                     params = list(getattr(self,f'netD{i}').parameters())
-            if self.opt.seg_gen:
-                for i in range(1, self.opt.modalities_no + self.opt.input_no + 1):
-                    params += list(getattr(self,f'netD5{i}').parameters())
             #params = list(self.netD1.parameters()) + list(self.netD2.parameters()) + list(self.netD3.parameters()) + list(self.netD4.parameters()) + list(self.netD51.parameters()) + list(self.netD52.parameters()) + list(self.netD53.parameters()) + list(self.netD54.parameters()) + list(self.netD55.parameters())
             self.optimizer_D = torch.optim.Adam(params, lr=opt.lr, betas=(opt.beta1, 0.999))
 
@@ -119,14 +102,6 @@ class SDGModel(BaseModel):
         for i in range(self.opt.modalities_no):
             setattr(self, f'fake_B_{i+1}', self.netG1(self.real_A))
         
-        if self.opt.seg_gen:
-            for i in range(self.opt.modalities_no + self.opt.input_no):
-                if i == 0:
-                    setattr(self, f'fake_B_5_{i+1}', getattr(self,f'netG5{i+1}')(self.real_A))
-                else:
-                    setattr(self, f'fake_B_5_{i+1}', getattr(self,f'netG5{i+1}')(getattr(self,f'fake_B_{i}')))
-            self.fake_B_5 = torch.stack([torch.mul(getattr(self, f'fake_B_5_{i+1}'), self.seg_weights[i]) for i in range(self.opt.modalities_no + self.opt.input_no)]).sum(dim=0)
-
 
     def backward_D(self):
         """Calculate GAN loss for the discriminators"""
@@ -142,30 +117,7 @@ class SDGModel(BaseModel):
         pred_fake_3 = self.netD3(fake_AB_3.detach())
         pred_fake_4 = self.netD4(fake_AB_4.detach())
         
-        if self.opt.seg_gen:
-            #dict_fake_AB_5 = {f'fake_AB_{i}': torch.cat((getattr(self, f'real_B_{i-1}'), self.fake_B_5), 1) for i in range(2, self.opt.modalities_no + self.opt.input_no + 1)}
-            #dict_fake_AB_5['fake_AB_5_1'] = torch.cat((self.real_A, self.fake_B_5), 1)
-            fake_AB_5_1 = torch.cat((self.real_A, self.fake_B_5), 1)    # Conditional GANs; feed IHC input and Segmentation mask output to the discriminator
-            fake_AB_5_2 = torch.cat((self.real_B_1, self.fake_B_5), 1)  # Conditional GANs; feed Hematoxylin input and Segmentation mask output to the discriminator
-            fake_AB_5_3 = torch.cat((self.real_B_2, self.fake_B_5), 1)  # Conditional GANs; feed mpIF DAPI input and Segmentation mask output to the discriminator
-            fake_AB_5_4 = torch.cat((self.real_B_3, self.fake_B_5), 1)  # Conditional GANs; feed mpIF Lap2 input and Segmentation mask output to the discriminator
-            fake_AB_5_5 = torch.cat((self.real_B_4, self.fake_B_5), 1)  # Conditional GANs; feed mpIF Lap2 input and Segmentation mask output to the discriminator
-            
-            #dict_pred_fake_5 = {f'pred_fake_{i}': getattr(self, f'netD5{i}')(dict_fake_AB['fake_AB_{i}']) for i in range(1, self.opt.modalities_no + self.opt.input_no + 1)}
-            pred_fake_5_1 = self.netD51(fake_AB_5_1.detach())
-            pred_fake_5_2 = self.netD52(fake_AB_5_2.detach())
-            pred_fake_5_3 = self.netD53(fake_AB_5_3.detach())
-            pred_fake_5_4 = self.netD54(fake_AB_5_4.detach())
-            pred_fake_5_5 = self.netD55(fake_AB_5_5.detach())
-            
-            #pred_fake_5 = torch.stack([torch.mul(dict_pred_fake_5[f'pred_fake_5_{i+1}'], self.seg_weights[i]) for i in range(self.opt.modalities_no + self.opt.input_no)]).sum(dim=0)
-            pred_fake_5 = torch.stack(
-            [torch.mul(pred_fake_5_1, self.seg_weights[0]),
-             torch.mul(pred_fake_5_2, self.seg_weights[1]),
-             torch.mul(pred_fake_5_3, self.seg_weights[2]),
-             torch.mul(pred_fake_5_4, self.seg_weights[3]),
-             torch.mul(pred_fake_5_5, self.seg_weights[4])]).sum(dim=0)
-            
+
         #for i in range(1, self.opt.modalities_no + 1):
         #    setattr(self, f'loss_D_fake_{i}', self.criterionGAN_BCE(dict_pred_fake[f'pred_fake_{i}'], False))
         #if self.opt.seg_gen:
@@ -174,8 +126,6 @@ class SDGModel(BaseModel):
         self.loss_D_fake_2 = self.criterionGAN_BCE(pred_fake_2, False)
         self.loss_D_fake_3 = self.criterionGAN_BCE(pred_fake_3, False)
         self.loss_D_fake_4 = self.criterionGAN_BCE(pred_fake_4, False)
-        if self.opt.seg_gen:
-            self.loss_D_fake_5 = self.criterionGAN_lsgan(pred_fake_5, False)
 
         #dict_real_AB = {f'real_AB_{i}':torch.cat((self.real_A, getattr(self, f'real_B_{i}')), 1) for i in range(1, self.opt.modalities_no + 1)}
         real_AB_1 = torch.cat((self.real_A, self.real_B_1), 1)
@@ -189,26 +139,6 @@ class SDGModel(BaseModel):
         pred_real_3 = self.netD3(real_AB_3)
         pred_real_4 = self.netD4(real_AB_4)
 
-        if self.opt.seg_gen:
-            real_AB_5_1 = torch.cat((self.real_A, self.real_B_5), 1)
-            real_AB_5_2 = torch.cat((self.real_B_1, self.real_B_5), 1)
-            real_AB_5_3 = torch.cat((self.real_B_2, self.real_B_5), 1)
-            real_AB_5_4 = torch.cat((self.real_B_3, self.real_B_5), 1)
-            real_AB_5_5 = torch.cat((self.real_B_4, self.real_B_5), 1)
-
-            pred_real_5_1 = self.netD51(real_AB_5_1)
-            pred_real_5_2 = self.netD52(real_AB_5_2)
-            pred_real_5_3 = self.netD53(real_AB_5_3)
-            pred_real_5_4 = self.netD54(real_AB_5_4)
-            pred_real_5_5 = self.netD55(real_AB_5_5)
-
-            pred_real_5 = torch.stack(
-                [torch.mul(pred_real_5_1, self.seg_weights[0]),
-                 torch.mul(pred_real_5_2, self.seg_weights[1]),
-                 torch.mul(pred_real_5_3, self.seg_weights[2]),
-                 torch.mul(pred_real_5_4, self.seg_weights[3]),
-                 torch.mul(pred_real_5_5, self.seg_weights[4])]).sum(dim=0)
-
         #for i in range(1, self.opt.modalities_no + 1):
         #    setattr(self, f'loss_D_real_{i}', self.criterionGAN_BCE(dict_pred_real[f'pred_real_{i}'], True))        
         #if self.opt.seg_gen:
@@ -217,8 +147,6 @@ class SDGModel(BaseModel):
         self.loss_D_real_2 = self.criterionGAN_BCE(pred_real_2, True)
         self.loss_D_real_3 = self.criterionGAN_BCE(pred_real_3, True)
         self.loss_D_real_4 = self.criterionGAN_BCE(pred_real_4, True)
-        if self.opt.seg_gen:
-            self.loss_D_real_5 = self.criterionGAN_lsgan(pred_real_5, True)
 
         # combine losses and calculate gradients
         #loss_D = 0
@@ -233,8 +161,6 @@ class SDGModel(BaseModel):
                       (self.loss_D_fake_2 + self.loss_D_real_2) * 0.5 * self.loss_D_weights[1] + \
                       (self.loss_D_fake_3 + self.loss_D_real_3) * 0.5 * self.loss_D_weights[2] + \
                       (self.loss_D_fake_4 + self.loss_D_real_4) * 0.5 * self.loss_D_weights[3]
-        if self.opt.seg_gen:
-            self.loss_D = (self.loss_D_fake_5 + self.loss_D_real_5) * 0.5 * self.loss_D_weights[4]
         self.loss_D.backward()
 
     def backward_G(self):
@@ -252,28 +178,6 @@ class SDGModel(BaseModel):
         pred_fake_3 = self.netD3(fake_AB_3)
         pred_fake_4 = self.netD4(fake_AB_4)
         
-        if self.opt.seg_gen:
-            #dict_fake_AB_5 = {f'fake_AB_{i}': torch.cat((getattr(self, f'real_B_{i-1}'), self.fake_B_5), 1) for i in range(2, self.opt.modalities_no + self.opt.input_no + 1)}
-            #dict_fake_AB_5['fake_AB_5_1'] = torch.cat((self.real_A, self.fake_B_5), 1)
-            fake_AB_5_1 = torch.cat((self.real_A, self.fake_B_5), 1)
-            fake_AB_5_2 = torch.cat((self.real_B_1, self.fake_B_5), 1)
-            fake_AB_5_3 = torch.cat((self.real_B_2, self.fake_B_5), 1)
-            fake_AB_5_4 = torch.cat((self.real_B_3, self.fake_B_5), 1)
-            fake_AB_5_5 = torch.cat((self.real_B_4, self.fake_B_5), 1)
-
-            #dict_pred_fake_5 = {f'pred_fake_{i}': getattr(self, f'netD5{i}')(dict_fake_AB[f'fake_AB_{i}']) for i in range(1, self.opt.modalities_no + self.opt.input_no + 1)}
-            pred_fake_5_1 = self.netD51(fake_AB_5_1)
-            pred_fake_5_2 = self.netD52(fake_AB_5_2)
-            pred_fake_5_3 = self.netD53(fake_AB_5_3)
-            pred_fake_5_4 = self.netD54(fake_AB_5_4)
-            pred_fake_5_5 = self.netD55(fake_AB_5_5)
-            #pred_fake_5 = torch.stack([torch.mul(dict_pred_fake_5[f'pred_fake_5_{i+1}'], self.seg_weights[i]) for i in range(self.opt.modalities_no + self.opt.input_no)]).sum(dim=0)
-            pred_fake_5 = torch.stack(
-            [torch.mul(pred_fake_5_1, self.seg_weights[0]),
-             torch.mul(pred_fake_5_2, self.seg_weights[1]),
-             torch.mul(pred_fake_5_3, self.seg_weights[2]),
-             torch.mul(pred_fake_5_4, self.seg_weights[3]),
-             torch.mul(pred_fake_5_5, self.seg_weights[4])]).sum(dim=0)
         
         #for i in range(1, self.opt.modalities_no + 1):
         #    setattr(self, f'loss_G_GAN_{i}', self.criterionGAN_BCE(dict_pred_fake[f'pred_fake_{i}'], True))
@@ -283,8 +187,6 @@ class SDGModel(BaseModel):
         self.loss_G_GAN_2 = self.criterionGAN_BCE(pred_fake_2, True)
         self.loss_G_GAN_3 = self.criterionGAN_BCE(pred_fake_3, True)
         self.loss_G_GAN_4 = self.criterionGAN_BCE(pred_fake_4, True)
-        if self.opt.seg_gen:
-            self.loss_G_GAN_5 = self.criterionGAN_lsgan(pred_fake_5, True)
 
         # Second, G(A) = B
         #for i in range(1, self.opt.modalities_no + 1):
@@ -295,9 +197,7 @@ class SDGModel(BaseModel):
         self.loss_G_L1_2 = self.criterionSmoothL1(self.fake_B_2, self.real_B_2) * self.opt.lambda_L1
         self.loss_G_L1_3 = self.criterionSmoothL1(self.fake_B_3, self.real_B_3) * self.opt.lambda_L1
         self.loss_G_L1_4 = self.criterionSmoothL1(self.fake_B_4, self.real_B_4) * self.opt.lambda_L1
-        if self.opt.seg_gen:
-            self.loss_G_L1_5 = self.criterionSmoothL1(self.fake_B_5, self.real_B_5) * self.opt.lambda_L1
-        
+
         #for i in range(1, self.opt.modalities_no + 1):
         #    setattr(self, f'loss_G_VGG_{i}', self.criterionVGG(getattr(self, f'fake_B_{i}'), getattr(self, f'real_B_{i}')) * self.opt.lambda_feat)
         self.loss_G_VGG_1 = self.criterionVGG(self.fake_B_1, self.real_B_1) * self.opt.lambda_feat
@@ -318,8 +218,6 @@ class SDGModel(BaseModel):
                       (self.loss_G_GAN_2 + self.loss_G_L1_2 + self.loss_G_VGG_2) * self.loss_G_weights[1] + \
                       (self.loss_G_GAN_3 + self.loss_G_L1_3 + self.loss_G_VGG_3) * self.loss_G_weights[2] + \
                       (self.loss_G_GAN_4 + self.loss_G_L1_4 + self.loss_G_VGG_4) * self.loss_G_weights[3]
-        if self.opt.seg_gen:
-            self.loss_G += (self.loss_G_GAN_5 + self.loss_G_L1_5) * self.loss_G_weights[4]
         self.loss_G.backward()
 
     def optimize_parameters(self):
@@ -334,12 +232,6 @@ class SDGModel(BaseModel):
         self.set_requires_grad(self.netD2, True)  # enable backprop for D2
         self.set_requires_grad(self.netD3, True)  # enable backprop for D3
         self.set_requires_grad(self.netD4, True)  # enable backprop for D4
-        if self.opt.seg_gen:
-            self.set_requires_grad(self.netD51, True)  # enable backprop for D51
-            self.set_requires_grad(self.netD52, True)  # enable backprop for D52
-            self.set_requires_grad(self.netD53, True)  # enable backprop for D53
-            self.set_requires_grad(self.netD54, True)  # enable backprop for D54
-            self.set_requires_grad(self.netD55, True)  # enable backprop for D54
 
         self.optimizer_D.zero_grad()     # set D's gradients to zero
         self.backward_D()                # calculate gradients for D
@@ -355,12 +247,6 @@ class SDGModel(BaseModel):
         self.set_requires_grad(self.netD2, False)  # D2 requires no gradients when optimizing G2
         self.set_requires_grad(self.netD3, False)  # D3 requires no gradients when optimizing G3
         self.set_requires_grad(self.netD4, False)  # D4 requires no gradients when optimizing G4
-        if self.opt.seg_gen:
-            self.set_requires_grad(self.netD51, False)  # D51 requires no gradients when optimizing G51
-            self.set_requires_grad(self.netD52, False)  # D52 requires no gradients when optimizing G52
-            self.set_requires_grad(self.netD53, False)  # D53 requires no gradients when optimizing G53
-            self.set_requires_grad(self.netD54, False)  # D54 requires no gradients when optimizing G54
-            self.set_requires_grad(self.netD55, False)  # D54 requires no gradients when optimizing G54
 
         self.optimizer_G.zero_grad()        # set G's gradients to zero
         self.backward_G()                   # calculate graidents for G
