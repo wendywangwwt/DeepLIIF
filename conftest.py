@@ -11,11 +11,15 @@ MODEL_INFO = {'latest':{'model':'DeepLIIF', # cli.py train looks for subfolder "
                         'dir_input_train':['Datasets/Sample_Dataset'],
                         'dir_input_inference':['Datasets/Sample_Dataset/test_cli'],
                         'dir_model':['../checkpoints/DeepLIIF_Latest_Model'],
+                        'modalities_no': [4],
+                        'seg_gen':[True],
                         'tile_size':512},
               'ext':{'model':'DeepLIIFExt',
                      'dir_input_train':['Datasets/Sample_Dataset_ext_withseg','Datasets/Sample_Dataset_ext_noseg'],
                      'dir_input_inference':['Datasets/Sample_Dataset_ext_withseg/test_cli','Datasets/Sample_Dataset_ext_noseg/test_cli'],
                      'dir_model':['../checkpoints/deepliif_extension_LN_Tonsil_4mod_400epochs','../checkpoints/HER2_5mod_400epochs'],
+                     'modalities_no':[4,5],
+                     'seg_gen':[True,False],
                      'tile_size':1024}}
 
 def pytest_addoption(parser):
