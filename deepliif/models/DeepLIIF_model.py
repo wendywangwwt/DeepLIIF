@@ -20,11 +20,16 @@ class DeepLIIFModel(BaseModel):
         # loss weights in calculating the final loss
         self.loss_G_weights = [0.2, 0.2, 0.2, 0.2, 0.2]
         self.loss_D_weights = [0.2, 0.2, 0.2, 0.2, 0.2]
+        
+        if not opt.is_train:
+            self.gpu_ids = [] # avoid the models being loaded as DP
+        else:
+            self.gpu_ids = opt.gpu_ids
 
         self.loss_names = []
         self.visual_names = ['real_A']
         # specify the training losses you want to print out. The training/test scripts will call <BaseModel.get_current_losses>
-        for i in range(1, self.opt.targets_no + 1):
+        for i in range(1, self.opt.modalities_no + 1 + 1):
             self.loss_names.extend(['G_GAN_' + str(i), 'G_L1_' + str(i), 'D_real_' + str(i), 'D_fake_' + str(i)])
             self.visual_names.extend(['fake_B_' + str(i), 'real_B_' + str(i)])
 
@@ -32,17 +37,17 @@ class DeepLIIFModel(BaseModel):
         # specify the models you want to save to the disk. The training/test scripts will call <BaseModel.save_networks> and <BaseModel.load_networks>
         if self.is_train:
             self.model_names = []
-            for i in range(1, self.opt.targets_no):
+            for i in range(1, self.opt.modalities_no + 1):
                 self.model_names.extend(['G' + str(i), 'D' + str(i)])
 
-            for i in range(1, self.opt.targets_no+1):
+            for i in range(1, self.opt.modalities_no + 1 + 1):
                 self.model_names.extend(['G5' + str(i), 'D5' + str(i)])
         else:  # during test time, only load G
             self.model_names = []
-            for i in range(1, self.opt.targets_no):
+            for i in range(1, self.opt.modalities_no + 1):
                 self.model_names.extend(['G' + str(i)])
 
-            for i in range(1, self.opt.targets_no+1):
+            for i in range(1, self.opt.modalities_no + 1 + 1):
                 self.model_names.extend(['G5' + str(i)])
 
         # define networks (both generator and discriminator)
