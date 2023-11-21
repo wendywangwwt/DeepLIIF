@@ -31,7 +31,7 @@ import numpy as np
 from dask import delayed, compute
 
 from deepliif.util import *
-from deepliif.util.util import tensor_to_pil
+from deepliif.util.util import tensor_to_pil, check_multi_scale
 from deepliif.data import transform
 from deepliif.postprocessing import adjust_marker, adjust_dapi, compute_IHC_scoring, \
     overlay_final_segmentation_mask, create_final_segmentation_mask_with_boundaries, create_basic_segmentation_mask
@@ -214,10 +214,15 @@ def run_torchserve(img, model_path=None, eager_mode=False):
 
 
 def run_dask(img, model_path, eager_mode=False):
+    torch.cuda.nvtx.range_push(f"deepliif/models/run_dask")
     model_dir = os.getenv('DEEPLIIF_MODEL_DIR', model_path)
+    torch.cuda.nvtx.range_push(f"deepliif/models/run_dask init_nets")
     nets = init_nets(model_dir, eager_mode)
+    torch.cuda.nvtx.range_pop()
 
+    torch.cuda.nvtx.range_push(f"deepliif/models/run_dask transform")
     ts = transform(img.resize((512, 512)))
+    torch.cuda.nvtx.range_pop()
 
     @delayed
     def forward(input, model):
@@ -226,18 +231,31 @@ def run_dask(img, model_path, eager_mode=False):
 
     seg_map = {'G1': 'G52', 'G2': 'G53', 'G3': 'G54', 'G4': 'G55'}
 
+    torch.cuda.nvtx.range_push(f"deepliif/models/run_dask create lazy_gens")
     lazy_gens = {k: forward(ts, nets[k]) for k in seg_map}
+    torch.cuda.nvtx.range_pop()
+    torch.cuda.nvtx.range_push(f"deepliif/models/run_dask compute lazy_gens")
     gens = compute(lazy_gens)[0]
+    torch.cuda.nvtx.range_pop()
 
+    torch.cuda.nvtx.range_push(f"deepliif/models/run_dask create lazy_segs")
     lazy_segs = {v: forward(gens[k], nets[v]).to(torch.device('cpu')) for k, v in seg_map.items()}
     lazy_segs['G51'] = forward(ts, nets['G51']).to(torch.device('cpu'))
+    torch.cuda.nvtx.range_pop()
+    torch.cuda.nvtx.range_push(f"deepliif/models/run_dask compute lazy_segs")
     segs = compute(lazy_segs)[0]
+    torch.cuda.nvtx.range_pop()
 
+    torch.cuda.nvtx.range_push(f"deepliif/models/run_dask aggregate seg images")
     seg_weights = [0.25, 0.25, 0.25, 0, 0.25]
     seg = torch.stack([torch.mul(n, w) for n, w in zip(segs.values(), seg_weights)]).sum(dim=0)
+    torch.cuda.nvtx.range_pop()
 
+    torch.cuda.nvtx.range_push(f"deepliif/models/run_dask tensor_to_pil")
     res = {k: tensor_to_pil(v) for k, v in gens.items()}
     res['G5'] = tensor_to_pil(seg)
+    torch.cuda.nvtx.range_pop()
+    torch.cuda.nvtx.range_pop()
 
     return res
 

@@ -524,10 +524,14 @@ def test(input_dir, output_dir, tile_size, model_dir, region_size, eager_mode,
     
     """Test trained models
     """
+    torch.cuda.nvtx.range_push("test function")
+    torch.cuda.nvtx.range_push("setup")
     output_dir = output_dir or input_dir
     ensure_exists(output_dir)
 
     image_files = [fn for fn in os.listdir(input_dir) if allowed_file(fn)]
+    torch.cuda.nvtx.range_pop()
+    torch.cuda.nvtx.range_push("click progressbar")
 
     with click.progressbar(
             image_files,
@@ -540,20 +544,32 @@ def test(input_dir, output_dir, tile_size, model_dir, region_size, eager_mode,
                 infer_results_for_wsi(input_dir, filename, output_dir, model_dir, tile_size, region_size)
                 print(time.time() - start_time)
             else:
+                torch.cuda.nvtx.range_push(f"image {filename}")
+                torch.cuda.nvtx.range_push(f"load image")
                 img = Image.open(os.path.join(input_dir, filename)).convert('RGB')
+                torch.cuda.nvtx.range_pop()
+                torch.cuda.nvtx.range_push(f"cli test infer_modalities")
                 images, scoring = infer_modalities(img, tile_size, model_dir, eager_mode, color_dapi, color_marker)
-
+                torch.cuda.nvtx.range_pop()
+                
+                torch.cuda.nvtx.range_push(f"save predicted images")
                 for name, i in images.items():
                     i.save(os.path.join(
                         output_dir,
                         filename.replace('.' + filename.split('.')[-1], f'_{name}.png')
                     ))
-
+                torch.cuda.nvtx.range_pop()
+                    
+                torch.cuda.nvtx.range_push(f"save json")
                 with open(os.path.join(
                         output_dir,
                         filename.replace('.' + filename.split('.')[-1], f'.json')
                 ), 'w') as f:
                     json.dump(scoring, f, indent=2)
+                torch.cuda.nvtx.range_pop()
+                torch.cuda.nvtx.range_pop()
+    torch.cuda.nvtx.range_pop()
+    torch.cuda.nvtx.range_pop()
 
 @cli.command()
 @click.option('--input-dir', type=str, required=True, help='Path to input images')
