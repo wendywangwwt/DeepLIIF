@@ -31,12 +31,14 @@ import numpy as np
 from dask import delayed, compute
 
 from deepliif.util import *
-from deepliif.util.util import tensor_to_pil
+from deepliif.util.util import tensor_to_pil, check_multi_scale
 from deepliif.data import transform
 from deepliif.postprocessing import adjust_marker, adjust_dapi, compute_IHC_scoring, \
     overlay_final_segmentation_mask, create_final_segmentation_mask_with_boundaries, create_basic_segmentation_mask
 
 from .base_model import BaseModel
+
+# import for init purpose, not used in this script
 from .DeepLIIF_model import DeepLIIFModel
 from .networks import get_norm_layer, ResnetGenerator, UnetGenerator
 
@@ -64,12 +66,10 @@ def find_model_using_name(model_name):
 
     return model
 
-
 def get_option_setter(model_name):
     """Return the static method <modify_commandline_options> of the model class."""
     model_class = find_model_using_name(model_name)
     return model_class.modify_commandline_options
-
 
 def create_model(opt):
     """Create a model given the option.
@@ -108,6 +108,10 @@ def read_model_params(file_addr):
 
 
 def load_eager_models(model_dir, devices):
+    print(devices)
+    model_dir = '../checkpoints/DeepLIIF_Latest_Model'
+    torch.cuda.nvtx.range_push(f"deepliif/models/load_eager_models")
+    torch.cuda.nvtx.range_push(f"deepliif/models/load_eager_models setup")
     input_nc = 3
     output_nc = 3
     ngf = 64
@@ -127,9 +131,12 @@ def load_eager_models(model_dir, devices):
             padding_type = param_dict['padding']
 
     norm_layer = get_norm_layer(norm_type=norm)
-
+    torch.cuda.nvtx.range_pop()
+    
+    torch.cuda.nvtx.range_push(f"deepliif/models/load_eager_models load nets")
     nets = {}
     for n in ['G1', 'G2', 'G3', 'G4']:
+        torch.cuda.nvtx.range_push(f"deepliif/models/load_eager_models load net {n}")
         net = ResnetGenerator(input_nc, output_nc, ngf, norm_layer=norm_layer, use_dropout=use_dropout, n_blocks=9, padding_type=padding_type)
         net.load_state_dict(torch.load(
             os.path.join(model_dir, f'latest_net_{n}.pth'),
@@ -137,8 +144,10 @@ def load_eager_models(model_dir, devices):
         ))
         nets[n] = disable_batchnorm_tracking_stats(net)
         nets[n].eval()
+        torch.cuda.nvtx.range_pop()
 
     for n in ['G51', 'G52', 'G53', 'G54', 'G55']:
+        torch.cuda.nvtx.range_push(f"deepliif/models/load_eager_models load net {n}")
         net = UnetGenerator(input_nc, output_nc, 9, ngf, norm_layer=norm_layer, use_dropout=use_dropout)
         net.load_state_dict(torch.load(
             os.path.join(model_dir, f'latest_net_{n}.pth'),
@@ -146,7 +155,9 @@ def load_eager_models(model_dir, devices):
         ))
         nets[n] = disable_batchnorm_tracking_stats(net)
         nets[n].eval()
-
+        torch.cuda.nvtx.range_pop()
+    torch.cuda.nvtx.range_pop()
+    torch.cuda.nvtx.range_pop()
     return nets
 
 
@@ -156,6 +167,9 @@ def init_nets(model_dir, eager_mode=False):
     Init DeepLIIF networks so that every net in
     the same group is deployed on the same GPU
     """
+    torch.cuda.nvtx.range_push(f"deepliif/models/init_nets")
+    torch.cuda.nvtx.range_push(f"deepliif/models/init_nets setup")
+
     net_groups = [
         ('G1', 'G52'),
         ('G2', 'G53'),
@@ -163,7 +177,10 @@ def init_nets(model_dir, eager_mode=False):
         ('G4', 'G55'),
         ('G51',)
     ]
-
+    
+    torch.cuda.nvtx.range_pop()
+    
+    torch.cuda.nvtx.range_push(f"deepliif/models/init_nets infer devices")
     number_of_gpus = torch.cuda.device_count()
     # number_of_gpus = 0
     if number_of_gpus:
@@ -172,14 +189,20 @@ def init_nets(model_dir, eager_mode=False):
         devices = {n: torch.device(f'cuda:{i}') for i, g in enumerate(chunks) for n in g}
     else:
         devices = {n: torch.device('cpu') for n in itertools.chain.from_iterable(net_groups)}
-
+    torch.cuda.nvtx.range_pop()
+    
+    torch.cuda.nvtx.range_push(f"deepliif/models/init_nets load models")
     if eager_mode:
-        return load_eager_models(model_dir, devices)
-
-    return {
+        res = load_eager_models(model_dir, devices)
+        torch.cuda.nvtx.range_pop()
+        return  res
+        
+    res = {
         n: load_torchscript_model(os.path.join(model_dir, f'{n}.pt'), device=d)
         for n, d in devices.items()
     }
+    torch.cuda.nvtx.range_pop()
+    return res
 
 
 def compute_overlap(img_size, tile_size):
@@ -214,10 +237,15 @@ def run_torchserve(img, model_path=None, eager_mode=False):
 
 
 def run_dask(img, model_path, eager_mode=False):
+    torch.cuda.nvtx.range_push(f"deepliif/models/run_dask")
     model_dir = os.getenv('DEEPLIIF_MODEL_DIR', model_path)
+    torch.cuda.nvtx.range_push(f"deepliif/models/run_dask init_nets")
     nets = init_nets(model_dir, eager_mode)
-
+    torch.cuda.nvtx.range_pop()
+    
+    torch.cuda.nvtx.range_push(f"deepliif/models/run_dask transform")
     ts = transform(img.resize((512, 512)))
+    torch.cuda.nvtx.range_pop()
 
     @delayed
     def forward(input, model):
@@ -225,21 +253,35 @@ def run_dask(img, model_path, eager_mode=False):
             return model(input.to(next(model.parameters()).device))
 
     seg_map = {'G1': 'G52', 'G2': 'G53', 'G3': 'G54', 'G4': 'G55'}
-
+    
+    torch.cuda.nvtx.range_push(f"deepliif/models/run_dask create lazy_gens")
     lazy_gens = {k: forward(ts, nets[k]) for k in seg_map}
+    torch.cuda.nvtx.range_pop()
+    torch.cuda.nvtx.range_push(f"deepliif/models/run_dask compute lazy_gens")
     gens = compute(lazy_gens)[0]
-
+    torch.cuda.nvtx.range_pop()
+    
+    torch.cuda.nvtx.range_push(f"deepliif/models/run_dask create lazy_segs")
     lazy_segs = {v: forward(gens[k], nets[v]).to(torch.device('cpu')) for k, v in seg_map.items()}
     lazy_segs['G51'] = forward(ts, nets['G51']).to(torch.device('cpu'))
+    torch.cuda.nvtx.range_pop()
+    torch.cuda.nvtx.range_push(f"deepliif/models/run_dask compute lazy_segs")
     segs = compute(lazy_segs)[0]
-
+    torch.cuda.nvtx.range_pop()
+    
+    torch.cuda.nvtx.range_push(f"deepliif/models/run_dask aggregate seg images")
     seg_weights = [0.25, 0.25, 0.25, 0, 0.25]
     seg = torch.stack([torch.mul(n, w) for n, w in zip(segs.values(), seg_weights)]).sum(dim=0)
-
+    torch.cuda.nvtx.range_pop()
+    
+    torch.cuda.nvtx.range_push(f"deepliif/models/run_dask tensor_to_pil")
     res = {k: tensor_to_pil(v) for k, v in gens.items()}
     res['G5'] = tensor_to_pil(seg)
-
+    torch.cuda.nvtx.range_pop()
+    torch.cuda.nvtx.range_pop()
     return res
+
+    
 
 
 def is_empty(tile):
@@ -262,7 +304,6 @@ def run_wrapper(tile, run_fn, model_path, eager_mode=False):
 
 def inference(img, tile_size, overlap_size, model_path, use_torchserve=False, eager_mode=False,
               color_dapi=False, color_marker=False):
-
     
     tiles = list(generate_tiles(img, tile_size, overlap_size))
 
@@ -321,7 +362,7 @@ def postprocess(img, seg_img, thresh=80, noise_objects_size=20, small_object_siz
         'num_neg': negative_cells_no,
         'percent_pos': IHC_score
     }
-
+    
     return images, scoring
 
 
@@ -334,11 +375,16 @@ def infer_modalities(img, tile_size, model_dir, eager_mode=False,
     :param model_dir: The directory containing serialized model files.
     :return: The inferred modalities and the segmentation mask.
     """
+    torch.cuda.nvtx.range_push(f"deepliif/models/infer_modalities")
+    torch.cuda.nvtx.range_push(f"deepliif/models/infer_modalities setup")
+    
     if not tile_size:
         tile_size = check_multi_scale(Image.open('./images/target.png').convert('L'),
                                       img.convert('L'))
     tile_size = int(tile_size)
-
+    torch.cuda.nvtx.range_pop()
+    
+    torch.cuda.nvtx.range_push(f"deepliif/models/infer_modalities inference")
     images = inference(
         img,
         tile_size=tile_size,
@@ -348,9 +394,11 @@ def infer_modalities(img, tile_size, model_dir, eager_mode=False,
         color_dapi=color_dapi,
         color_marker=color_marker
     )
-
+    torch.cuda.nvtx.range_pop()
+    
     post_images, scoring = postprocess(img, images['Seg'], small_object_size=20)
     images = {**images, **post_images}
+    torch.cuda.nvtx.range_pop()
     return images, scoring
 
 
