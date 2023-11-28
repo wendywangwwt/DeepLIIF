@@ -138,6 +138,9 @@ def load_eager_models(model_dir, devices):
     for n in ['G1', 'G2', 'G3', 'G4']:
         torch.cuda.nvtx.range_push(f"deepliif/models/load_eager_models load net {n}")
         net = ResnetGenerator(input_nc, output_nc, ngf, norm_layer=norm_layer, use_dropout=use_dropout, n_blocks=9, padding_type=padding_type)
+        # https://discuss.pytorch.org/t/torch-load-does-not-map-to-gpu-as-advertised/74637/6
+        # make sure net and weights are on the same device
+        net.to(devices[n])
         net.load_state_dict(torch.load(
             os.path.join(model_dir, f'latest_net_{n}.pth'),
             map_location=devices[n]
@@ -149,6 +152,7 @@ def load_eager_models(model_dir, devices):
     for n in ['G51', 'G52', 'G53', 'G54', 'G55']:
         torch.cuda.nvtx.range_push(f"deepliif/models/load_eager_models load net {n}")
         net = UnetGenerator(input_nc, output_nc, 9, ngf, norm_layer=norm_layer, use_dropout=use_dropout)
+        net.to(devices[n])
         net.load_state_dict(torch.load(
             os.path.join(model_dir, f'latest_net_{n}.pth'),
             map_location=devices[n]

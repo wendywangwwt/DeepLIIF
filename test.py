@@ -35,6 +35,7 @@ from deepliif.util.visualizer import save_images
 from deepliif.util import html
 import torch
 
+
 if __name__ == '__main__':
     torch.cuda.memory._record_memory_history()
     torch.cuda.nvtx.range_push("test script")
@@ -74,6 +75,7 @@ if __name__ == '__main__':
     torch.cuda.nvtx.range_pop()
     torch.cuda.nvtx.range_push("test model setup")
     model.setup(opt)               # regular setup: load and print networks; create schedulers
+    torch.backends.cudnn.benchmark = False
     torch.cuda.nvtx.range_pop()
     # create a website
     web_dir = os.path.join(opt.results_dir, opt.name, '{}_{}'.format(opt.phase, opt.epoch))  # define the website directory
