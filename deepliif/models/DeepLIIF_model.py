@@ -18,7 +18,9 @@ class DeepLIIFModel(BaseModel):
             opt.net_gs = 'unet_512'
 
         # weights of the modalities in generating segmentation mask
-        self.seg_weights = [0.25, 0.25, 0.25, 0.0, 0.25]
+        self.seg_weights = [0.2, 0.2, 0.2, 0.2, 0.2]
+        # self.seg_weights = [0.25, 0.15, 0.25, 0.1, 0.25]
+        # self.seg_weights = [0.25, 0.25, 0.25, 0.0, 0.25]
 
         # loss weights in calculating the final loss
         self.loss_G_weights = [0.2, 0.2, 0.2, 0.2, 0.2]
