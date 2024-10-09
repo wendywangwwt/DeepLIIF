@@ -159,7 +159,7 @@ def in_bounds(array, index):
     return index[0] >= 0 and index[0] < array.shape[0] and index[1] >= 0 and index[1] < array.shape[1]
 
 
-def create_posneg_mask(seg, thresh):
+def create_posneg_mask(seg, thresh, return_separate=False):
     """Create a mask of positive and negative pixels."""
 
     cell = np.logical_and(np.add(seg[:,:,0], seg[:,:,2], dtype=np.uint16) > thresh, seg[:,:,1] <= 80)
@@ -170,7 +170,10 @@ def create_posneg_mask(seg, thresh):
     mask[pos] = MASK_POSITIVE
     mask[neg] = MASK_NEGATIVE
 
-    return mask
+    if return_separate:
+        return pos, neg
+    else:
+        return mask
 
 
 @jit(nopython=True)

@@ -4,19 +4,27 @@ import numpy as np
 import csv
 from numba import cuda
 import time
+from PIL import Image, ImageOps
 
 from .Segmentation_Metrics import compute_segmentation_metrics
 #from fid_official_tf import calculate_fid_given_paths
 from .fid import calculate_fid_given_paths
 from .inception_score import calculate_inception_score
 
-from skimage.metrics import structural_similarity as ssim
-from skimage.metrics import peak_signal_noise_ratio as psnr
+from .ssim_psnr import SSIM as ssim
+from .ssim_psnr import PSNR as psnr
+
+#from skimage.metrics import structural_similarity as ssim
+#from skimage.metrics import peak_signal_noise_ratio as psnr
 from skimage.metrics import mean_squared_error
 from skimage import img_as_float, io, measure
 from skimage.color import rgb2gray
 import collections
 from .swd import compute_swd
+
+import torch
+import torchvision
+
 
 
 """
@@ -31,7 +39,7 @@ params:
   batch_size: Batch size to use
   num_workers: Number of processes to use for data loading
   image_types: These are non-seg modalities to be evaluated.
-  seg_type: This is the seg modality to be evaluated.
+  seg_type: This is the seg modality to be evaluated; a dictionary with key being unique identifier in pred image and value being unique identifier in gt image
 """
 
 class Statistics:
@@ -59,6 +67,15 @@ class Statistics:
 
         self.ssim_avg = collections.defaultdict(float)
         self.ssim_std = collections.defaultdict(float)
+        #self.ssim_info = collections.defaultdict(float)
+
+        self.cwssim_avg = collections.defaultdict(float)
+        self.cwssim_std = collections.defaultdict(float)
+        
+        self.lpips_alex_avg = collections.defaultdict(float)
+        self.lpips_alex_std = collections.defaultdict(float)
+        self.lpips_vgg_avg = collections.defaultdict(float)
+        self.lpips_vgg_std = collections.defaultdict(float)
 
         self.psnr_avg = collections.defaultdict(float)
         self.psnr_std = collections.defaultdict(float)
@@ -82,26 +99,66 @@ class Statistics:
             mse_arr = []
             ssim_arr = []
             # mse_info = []
+            ssim_info = []
+            print(len(images),'images found')
             for img_name in images:
                 if img_type in img_name:
-                    orig_img = img_as_float(rgb2gray(io.imread(os.path.join(self.gt_path, img_name))))
-                    mask_img = img_as_float(rgb2gray(io.imread(os.path.join(self.model_path, img_name))))
+                    orig_img = io.imread(os.path.join(self.gt_path, img_name))
+                    mask_img = io.imread(os.path.join(self.model_path, img_name))
+                    
+                    orig_img_rgb_float = img_as_float(orig_img)
+                    mask_img_rgb_float = img_as_float(mask_img)
+                    orig_img_gry_float = img_as_float(rgb2gray(orig_img))
+                    mask_img_gry_float = img_as_float(rgb2gray(mask_img))
 
-                    mse_mask = mean_squared_error(orig_img, mask_img)
-                    ssim_mask = ssim(orig_img, mask_img, multichannel=True, gaussian_weights=True, sigma=1.5, use_sample_covariance=False, data_range=1)
+                    mse_mask = mean_squared_error(orig_img_gry_float, mask_img_gry_float)
+                    
+                    ts_gt = torch.from_numpy(np.moveaxis(orig_img_rgb_float, -1, 0)).unsqueeze(0)
+                    ts_input = torch.from_numpy(np.moveaxis(mask_img_rgb_float, -1, 0)).unsqueeze(0)
+                    ssim_mask = ssim(ts_gt, ts_input)
+                    ssim_mask = float(ssim_mask.detach().numpy())
+                    #ssim_mask, ssim_info_cur = ssim(orig_img, mask_img, multichannel=True, gaussian_weights=True, sigma=1.5, use_sample_covariance=False, data_range=1)
 
                     mse_arr.append(mse_mask)
                     ssim_arr.append(ssim_mask)
-                    
+                    #ssim_info.append(ssim_info_cur)
                     # mse_info.append({'image_name': img_name, 'image_type':img_type, 'mse': mse_mask, 'ssim': ssim_mask})
             # self.write_list_to_csv(mse_info, mse_info[0].keys(),
             #                        filename='inference_info_' + img_type + '_' + self.model_name + '.csv')
             self.mse_avg[img_type], self.mse_std[img_type] = np.mean(mse_arr), np.std(mse_arr)
             self.ssim_avg[img_type], self.ssim_std[img_type] = np.mean(ssim_arr), np.std(ssim_arr)
+            self.ssim_info = ssim_info
         self.all_info['mse_avg'] = self.mse_avg
         self.all_info['mse_std'] = self.mse_std
         self.all_info['ssim_avg'] = self.ssim_avg
         self.all_info['ssim_std'] = self.ssim_std
+        #self.all_info['ssim_info'] = self.ssim_info
+    
+    def compute_cwssim_scores(self):
+        
+        for img_type in self.image_types:
+            images = os.listdir(self.model_path)
+            cwssim_arr = []
+            for img_name in images:
+                if img_type in img_name:
+                    orig_img = Image.open(os.path.join(self.gt_path, img_name))
+                    mask_img = Image.open(os.path.join(self.model_path, img_name))
+
+                    #orig_img_rgb_float = img_as_float(orig_img)
+                    #mask_img_rgb_float = img_as_float(mask_img)
+
+                    #ts_gt = torch.from_numpy(np.moveaxis(orig_img_rgb_float, -1, 0)).unsqueeze(0)
+                    #ts_input = torch.from_numpy(np.moveaxis(mask_img_rgb_float, -1, 0)).unsqueeze(0)
+
+                    #model = cwssim(imgSize=[512,512], channels=3, level=6, ori=16) # level and ori values are from the original paper: https://live.ece.utexas.edu/publications/2009/sampat_tip_nov09.pdf
+                    #cwssim_score = model(ts_input, ts_gt, as_loss=False)
+                    cwssim_score = SSIM(orig_img).cw_ssim_value(mask_img)
+
+                    cwssim_arr.append(cwssim_score)
+
+            self.cwssim_avg[img_type], self.cwssim_std[img_type] = np.mean(cwssim_arr), np.std(cwssim_arr)
+        self.all_info['cwssim_avg'] = self.cwssim_avg
+        self.all_info['cwssim_std'] = self.cwssim_std
     
     def compute_psnr_scores(self):
         """
@@ -114,14 +171,39 @@ class Statistics:
             # mse_info = []
             for img_name in images:
                 if img_type in img_name:
-                    orig_img = img_as_float(rgb2gray(io.imread(os.path.join(self.gt_path, img_name))))
-                    mask_img = img_as_float(rgb2gray(io.imread(os.path.join(self.model_path, img_name))))
+                    orig_img = img_as_float(io.imread(os.path.join(self.gt_path, img_name)))
+                    mask_img = img_as_float(io.imread(os.path.join(self.model_path, img_name)))
                     #print(orig_img)
 
-                    score_arr.append(psnr(orig_img, mask_img, data_range=1))
+                    score_arr.append(psnr(orig_img, mask_img, pixel_max=1))
             self.psnr_avg[img_type], self.psnr_std[img_type] = np.mean(score_arr), np.std(score_arr)
         self.all_info['psnr_avg'] = self.psnr_avg
         self.all_info['psnr_std'] = self.psnr_std
+        
+    def compute_lpips_scores(self):
+        loss_fn_alex = lpips.LPIPS(net='alex').cuda() # best forward scores
+        loss_fn_vgg = lpips.LPIPS(net='vgg').cuda() # closer to "traditional" perceptual loss, when used for optimization
+        for img_type in self.image_types:
+            images = os.listdir(self.model_path)
+            score_alex_arr = []
+            score_vgg_arr = []
+            for img_name in images:
+                if img_type in img_name:
+                    ts_gt = torchvision.io.read_image(os.path.join(self.gt_path, img_name)).cuda()
+                    ts_pred = torchvision.io.read_image(os.path.join(self.model_path, img_name)).cuda()
+
+                    score_alex = loss_fn_alex(ts_gt, ts_pred).cpu().detach().numpy()
+                    score_vgg = loss_fn_vgg(ts_gt, ts_pred).cpu().detach().numpy()
+
+                    score_alex_arr.append(score_alex)
+                    score_vgg_arr.append(score_vgg)
+
+            self.lpips_alex_avg[img_type], self.lpips_alex_std[img_type] = np.mean(score_alex_arr), np.std(score_alex_arr)
+            self.lpips_vgg_avg[img_type], self.lpips_vgg_std[img_type] = np.mean(score_vgg_arr), np.std(score_vgg_arr)
+        self.all_info['lpips_alex_avg'] = self.lpips_alex_avg
+        self.all_info['lpips_alex_std'] = self.lpips_alex_std
+        self.all_info['lpips_vgg_avg'] = self.lpips_vgg_avg
+        self.all_info['lpips_vgg_std'] = self.lpips_vgg_std
 
     def compute_inception_score(self):
         for img_type in self.image_types:
@@ -213,8 +295,8 @@ class Statistics:
         # max_AJI = [0, 0, 0]
         # for thresh in range(60, 150, 10):
         #     for noise_size in range(10, 80, 20):
-        thresh = 100
-        boundary_thresh = 100
+        thresh = 150#100
+        boundary_thresh = 80#100
         noise_size = 50
         
         self.segmentation_info, self.segmentation_metrics = compute_segmentation_metrics(self.gt_path, self.model_path, self.model_name, image_size=512, thresh=thresh, boundary_thresh=boundary_thresh, small_object_size=noise_size, raw_segmentation=self.raw_segmentation, suffix_seg=self.seg_type)
@@ -262,6 +344,11 @@ class Statistics:
         elif self.mode == 'Upscaling':
             self.compute_mse_ssim_scores()
             self.compute_psnr_scores()
+        elif self.mode == 'Upscaling_advanced':
+            from ssim import SSIM
+            self.compute_cwssim_scores()
+            import lpips
+            self.compute_lpips_scores()
         if write_to_csv:
             self.create_all_info()
         return self.all_info
