@@ -47,10 +47,16 @@ import click
 @click.option('--name', default='.', help='name of the experiment, used as a subfolder under results_dir')
 @click.option('--checkpoints_dir', required=True, help='load models from here.')
 @click.option('--num_test', default=10000, help='only run test for num_test images')
-def test(dataroot, results_dir, name, checkpoints_dir,num_test):
+@click.option('--phase', default='test', help='this effectively refers to the subfolder name from where to load the images')
+@click.option('--gpu_ids', type=int, multiple=True, help='gpu-ids 0 gpu-ids 1 or gpu-ids -1 for CPU')
+@click.option('--batch_size', default=1, help='input batch size')
+def test(dataroot, results_dir, name, checkpoints_dir,num_test, phase, gpu_ids, batch_size):
     # retrieve options used in training setting, similar to cli.py test
     model_dir = os.path.join(checkpoints_dir, name)
     opt = Options(path_file=os.path.join(model_dir,'train_opt.txt'), mode='test')
+    
+    if gpu_ids and gpu_ids[0] == -1:
+        gpu_ids = []
     
     # overwrite/supply unseen options using the values from the options provided in the command
     setattr(opt,'checkpoints_dir',checkpoints_dir)
@@ -58,6 +64,9 @@ def test(dataroot, results_dir, name, checkpoints_dir,num_test):
     setattr(opt,'name',name)
     setattr(opt,'results_dir',results_dir)
     setattr(opt,'num_test',num_test)
+    setattr(opt,'phase',phase)
+    setattr(opt,'gpu_ids',gpu_ids)
+    setattr(opt,'batch_size',batch_size)
         
     if not hasattr(opt,'seg_gen'): # old settings for DeepLIIF models
         opt.seg_gen = True
