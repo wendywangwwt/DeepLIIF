@@ -7,6 +7,7 @@ from numba import jit
 from skimage import measure
 import time
 from .PostProcessSegmentationMask import positive_negative_masks
+from ..postprocessing import create_posneg_mask
 
 
 @jit(nopython=True)
@@ -109,25 +110,31 @@ def compute_segmentation_metrics(gt_dir, model_dir, model_name, image_size=512, 
 
     counter = 0
     if suffix_seg is not None:
-        postfix = f'_{suffix_seg}.png'
+        postfix_pred = f'_{list(suffix_seg.keys())[0]}.png'
+        postfix_gt = f'_{list(suffix_seg.values())[0]}.png'
     else:
-        postfix = '_Seg.png' if raw_segmentation else '_SegRefined.png'
+        postfix_pred = '_Seg.png' if raw_segmentation else '_SegRefined.png'
+        postfix_gt = '_Seg.png' if raw_segmentation else '_SegRefined.png'
+    print(postfix_pred,postfix_gt)
     for mask_name in images:
-        if postfix in mask_name:
+        if postfix_gt in mask_name:
+            fn_gt = mask_name
+            fn_pred = fn_gt.replace(postfix_gt,postfix_pred)
             counter += 1
 
-            mask_image = cv2.cvtColor(cv2.imread(os.path.join(model_dir, mask_name)), cv2.COLOR_BGR2RGB)
+            mask_image = cv2.cvtColor(cv2.imread(os.path.join(model_dir, fn_pred)), cv2.COLOR_BGR2RGB)
             mask_image = cv2.resize(mask_image, (image_size, image_size))
             if not raw_segmentation:
                 positive_mask = mask_image[:, :, 0]
                 negative_mask = mask_image[:, :, 2]
             else:
-                positive_mask, negative_mask = positive_negative_masks(mask_image, thresh, boundary_thresh, small_object_size)
+                positive_mask, negative_mask = create_posneg_mask(mask_image, thresh, return_separate=True)
+                # positive_mask, negative_mask = positive_negative_masks(mask_image, thresh, boundary_thresh, small_object_size)
 
             positive_mask[positive_mask > 0] = 1
             negative_mask[negative_mask > 0] = 1
 
-            gt_img = cv2.cvtColor(cv2.imread(os.path.join(gt_dir, mask_name)), cv2.COLOR_BGR2RGB)
+            gt_img = cv2.cvtColor(cv2.imread(os.path.join(gt_dir, fn_gt)), cv2.COLOR_BGR2RGB)
             gt_img = cv2.resize(gt_img, (image_size, image_size))
 
             positive_gt = gt_img[:, :, 0]
@@ -160,6 +167,8 @@ def compute_segmentation_metrics(gt_dir, model_dir, model_name, image_size=512, 
 
             info_dict.append({'Model': model_name,
                               'image_name': mask_name,
+                              'fn_pred': fn_pred,
+                              'fn_gt': fn_gt,
                               'cell_type': 'Positive',
                               'precision': precision_positive * 100,
                               'recall': recall_positive * 100,
@@ -172,6 +181,8 @@ def compute_segmentation_metrics(gt_dir, model_dir, model_name, image_size=512, 
 
             info_dict.append({'Model': model_name,
                               'image_name': mask_name,
+                              'fn_pred': fn_pred,
+                              'fn_gt': fn_gt,
                               'cell_type': 'Negative',
                               'precision': precision_negative * 100,
                               'recall': recall_negative * 100,
