@@ -13,7 +13,7 @@ from torchvision.transforms import ToPILImage
 from deepliif.data import create_dataset, transform
 from deepliif.models import init_nets, infer_modalities, infer_results_for_wsi, create_model, postprocess
 from deepliif.util import allowed_file, Visualizer, get_information, test_diff_original_serialized, disable_batchnorm_tracking_stats
-from deepliif.util.util import mkdirs, check_multi_scale
+from deepliif.util.util import mkdirs
 # from deepliif.util import infer_results_for_wsi
 from deepliif.options import Options, print_options
 
@@ -130,7 +130,7 @@ def cli():
 @click.option('--n-epochs-decay', type=int, default=100,
               help='number of epochs to linearly decay learning rate to zero')
 @click.option('--optimizer', type=str, default='adam',
-              help='optimizer to use, applied to both generators and discriminators [adam | adamw-schedulefree]')
+              help='optimizer from torch.optim to use, applied to both generators and discriminators [adam | sgd | adamw | ...]; the current parameters however are set up for adam, so other optimziers may encounter issue')
 @click.option('--beta1', default=0.5, help='momentum term of adam')
 @click.option('--lr', default=0.0002, help='initial learning rate for adam')
 @click.option('--lr-policy', default='linear',
@@ -211,7 +211,8 @@ def train(dataroot, name, gpu_ids, checkpoints_dir, input_nc, output_nc, ngf, nd
         seg_no = 0
         seg_gen = False
     
-    assert optimizer in ['adam', 'adamw-schedulefree'], f'optimizer {optimizer} is not implemented'
+    if optimizer != 'adam':
+        print(f'Optimizer torch.optim.{optimizer} is not tested. Be careful about the parameters of the optimizer.')
     
     d_params = locals()
 
@@ -264,13 +265,14 @@ def train(dataroot, name, gpu_ids, checkpoints_dir, input_nc, output_nc, ngf, nd
     net_g = net_g.split(',')
     assert len(net_g) in [1,modalities_no], f'net_g should contain either 1 architecture for all translation generators or the same number of architectures as the number of translation generators ({modalities_no})'
     if len(net_g) == 1:
-      net_g = net_g*modalities_no
-      
+        net_g = net_g*modalities_no
     
     net_gs = net_gs.split(',')
     assert len(net_gs) in [1,seg_no], f'net_gs should contain either 1 architecture for all segmentation generators or the same number of architectures as the number of segmentation generators ({seg_no})'
-    if len(net_gs) == 1:
-      net_gs = net_gs*seg_no
+    if len(net_gs) == 1 and model == 'DeepLIIF':
+        net_gs = net_gs*(modalities_no + seg_no)
+    elif len(net_gs) == 1:
+        net_gs = net_gs*seg_no
     
     d_params['net_g'] = net_g
     d_params['net_gs'] = net_gs
@@ -283,14 +285,17 @@ def train(dataroot, name, gpu_ids, checkpoints_dir, input_nc, output_nc, ngf, nd
     
     # set dir for train and val
     dataset = create_dataset(opt)
-    dataset_val = create_dataset(opt,phase='val')
-    data_val = [batch for batch in dataset_val]
-    metrics_val = json.load(open(os.path.join(dataset_val.dataset.dir_AB,'metrics.json')))
 
     # get the number of images in the dataset.
     click.echo('The number of training images = %d' % len(dataset))
-    click.echo('The number of validation images = %d' % len(dataset_val))
-    click.echo('The number of validation images = %d' % len(data_val))
+    
+    if with_val:
+        dataset_val = create_dataset(opt,phase='val')
+        data_val = [batch for batch in dataset_val]
+        click.echo('The number of validation images = %d' % len(dataset_val))
+        
+        if model in ['DeepLIIF']: 
+            metrics_val = json.load(open(os.path.join(dataset_val.dataset.dir_AB,'metrics.json')))
 
     # create a model given model and other options
     model = create_model(opt)
@@ -387,25 +392,27 @@ def train(dataroot, name, gpu_ids, checkpoints_dir, input_nc, output_nc, ngf, nd
                 l_losses_val += [(k,v) for k,v in losses_val_batch.items()]
                 
                 # calculate cell count metrics
-                l_seg_names = ['fake_B_5']
-                assert l_seg_names[0] in visuals.keys(), f'Cannot find {l_seg_names[0]} in generated image names ({list(visuals.keys())})'
-                seg_mod_suffix = l_seg_names[0].split('_')[-1]
-                l_seg_names += [x for x in visuals.keys() if x.startswith('fake') and x.split('_')[-1].startswith(seg_mod_suffix) and x != l_seg_names[0]]
-                # print(f'Running postprocess for {len(l_seg_names)} generated images ({l_seg_names})')
-    
-                img_name_current = data_val_batch['A_paths'][0].split('/')[-1][:-4] # remove .png
-                metrics_gt = metrics_val[img_name_current]
-                
-                for seg_name in l_seg_names:
-                    images = {'Seg':ToPILImage()((visuals[seg_name][0].cpu()+1)/2),
-                              'Marker':ToPILImage()((visuals['fake_B_4'][0].cpu()+1)/2)}
-                    _, scoring = postprocess(ToPILImage()((data['A'][0]+1)/2), images, opt.scale_size, opt.model)
+                if type(model).__name__ == 'DeepLIIFModel':
+                    l_seg_names = ['fake_B_5']
+                    assert l_seg_names[0] in visuals.keys(), f'Cannot find {l_seg_names[0]} in generated image names ({list(visuals.keys())})'
+                    seg_mod_suffix = l_seg_names[0].split('_')[-1]
+                    l_seg_names += [x for x in visuals.keys() if x.startswith('fake') and x.split('_')[-1].startswith(seg_mod_suffix) and x != l_seg_names[0]]
+                    # print(f'Running postprocess for {len(l_seg_names)} generated images ({l_seg_names})')
+        
+                    img_name_current = data_val_batch['A_paths'][0].split('/')[-1][:-4] # remove .png
+                    metrics_gt = metrics_val[img_name_current]
                     
-                    for k,v in scoring.items():
-                        if k.startswith('num') or k.startswith('percent'):
-                            # to calculate the rmse, here we calculate (x_pred - x_true) ** 2
-                            l_metrics_val.append((k+'_'+seg_name,(v - metrics_gt[k])**2))
-                
+                    for seg_name in l_seg_names:
+                        images = {'Seg':ToPILImage()((visuals[seg_name][0].cpu()+1)/2),
+                                  #'Marker':ToPILImage()((visuals['fake_B_4'][0].cpu()+1)/2)
+                                  }
+                        _, scoring = postprocess(ToPILImage()((data['A'][0]+1)/2), images, opt.scale_size, opt.model)
+                        
+                        for k,v in scoring.items():
+                            if k.startswith('num') or k.startswith('percent'):
+                                # to calculate the rmse, here we calculate (x_pred - x_true) ** 2
+                                l_metrics_val.append((k+'_'+seg_name,(v - metrics_gt[k])**2))
+                    
                 if debug and epoch_iter >= debug_data_size:
                     print(f'debug mode, epoch {epoch} stopped at epoch iter {epoch_iter} (>= {debug_data_size})')
                     break
@@ -458,7 +465,7 @@ def train(dataroot, name, gpu_ids, checkpoints_dir, input_nc, output_nc, ngf, nd
               help='specify discriminator architecture [basic | n_layers | pixel]. The basic model is a 70x70 '
                    'PatchGAN. n_layers allows you to specify the layers in the discriminator')
 @click.option('--net-g', default='resnet_9blocks',
-              help='specify generator architecture [resnet_9blocks | resnet_6blocks | unet_512 | unet_256 | unet_128]')
+              help='specify generator architecture [resnet_9blocks | resnet_6blocks | unet_512 | unet_256 | unet_128 | unet_512_attention]; to specify different arch for generators, list arch for each generator separated by comma, e.g., --net-g=resnet_9blocks,resnet_9blocks,resnet_9blocks,unet_512_attention,unet_512_attention')
 @click.option('--n-layers-d', default=4, help='only used if netD==n_layers')
 @click.option('--norm', default='batch',
               help='instance normalization or batch normalization [instance | batch | none]')
@@ -501,6 +508,8 @@ def train(dataroot, name, gpu_ids, checkpoints_dir, input_nc, output_nc, ngf, nd
               help='number of epochs with the initial learning rate')
 @click.option('--n-epochs-decay', type=int, default=100,
               help='number of epochs to linearly decay learning rate to zero')
+@click.option('--optimizer', type=str, default='adam',
+              help='optimizer from torch.optim to use, applied to both generators and discriminators [adam | sgd | adamw | ...]; the current parameters however are set up for adam, so other optimziers may encounter issue')
 @click.option('--beta1', default=0.5, help='momentum term of adam')
 @click.option('--lr', default=0.0002, help='initial learning rate for adam')
 @click.option('--lr-policy', default='linear',
@@ -537,13 +546,20 @@ def train(dataroot, name, gpu_ids, checkpoints_dir, input_nc, output_nc, ngf, nd
 @click.option('--net-ds', type=str, default='n_layers',
               help='specify discriminator architecture for segmentation task [basic | n_layers | pixel]. The basic model is a 70x70 PatchGAN. n_layers allows you to specify the layers in the discriminator')
 @click.option('--net-gs', type=str, default='unet_512',
-              help='specify generator architecture for segmentation task [resnet_9blocks | resnet_6blocks | unet_512 | unet_256 | unet_128]')
+              help='specify generator architecture for segmentation task [resnet_9blocks | resnet_6blocks | unet_512 | unet_256 | unet_128 | unet_512_attention]; to specify different arch for generators, list arch for each generator separated by comma, e.g., --net-g=resnet_9blocks,resnet_9blocks,resnet_9blocks,unet_512_attention,unet_512_attention')
 @click.option('--gan-mode', type=str, default='vanilla',
               help='the type of GAN objective for translation task. [vanilla| lsgan | wgangp]. vanilla GAN loss is the cross-entropy objective used in the original GAN paper.')
 @click.option('--gan-mode-s', type=str, default='lsgan',
               help='the type of GAN objective for segmentation task. [vanilla| lsgan | wgangp]. vanilla GAN loss is the cross-entropy objective used in the original GAN paper.')
 # DDP related arguments
 @click.option('--local-rank', type=int, default=None, help='placeholder argument for torchrun, no need for manual setup')
+# Others
+@click.option('--with-val', is_flag=True,
+              help='use validation set to evaluate model performance at the end of each epoch')
+@click.option('--debug', is_flag=True,
+              help='debug mode, limits the number of data points per epoch to a small value')
+@click.option('--debug-data-size', default=10, type=int, help='data size per epoch used in debug mode; due to batch size, the epoch will be passed once the completed no. data points is greater than this value (e.g., for batch size 3, debug data size 10, the effective size used in training will be 12)')
+# trainlaunch DDP related arguments
 @click.option('--use-torchrun', type=str, default=None, help='provide torchrun options, all in one string, for example "-t3 --log_dir ~/log/ --nproc_per_node 1"; if your pytorch version is older than 1.10, torch.distributed.launch will be called instead of torchrun')
 def trainlaunch(**kwargs):
     """
@@ -635,9 +651,9 @@ def serialize(model_dir, output_dir, device, epoch, verbose):
     opt = Options(path_file=os.path.join(model_dir,'train_opt.txt'), mode='test')
     opt.epoch = epoch
     if device == 'gpu':
-        opt.gpu_ids = (0,) # use gpu 0, in case training was done on larger machines
+        opt.gpu_ids = [0] # use gpu 0, in case training was done on larger machines
     else:
-        opt.gpu_ids = (-1,) # use cpu
+        opt.gpu_ids = [] # use cpu
     
     print_options(opt)
     sample = transform(Image.new('RGB', (opt.scale_size, opt.scale_size)))
@@ -684,7 +700,7 @@ def serialize(model_dir, output_dir, device, epoch, verbose):
 @cli.command()
 @click.option('--input-dir', default='./Sample_Large_Tissues/', help='reads images from here')
 @click.option('--output-dir', help='saves results here.')
-@click.option('--tile-size', default=None, help='tile size')
+@click.option('--tile-size', type=click.IntRange(min=1, max=None), required=True, help='tile size')
 @click.option('--model-dir', default='./model-server/DeepLIIF_Latest_Model/', help='load models from here.')
 @click.option('--gpu-ids', type=int, multiple=True, help='gpu-ids 0 gpu-ids 1 or gpu-ids -1 for CPU')
 @click.option('--region-size', default=20000, help='Due to limits in the resources, the whole slide image cannot be processed in whole.'
@@ -746,11 +762,12 @@ def test(input_dir, output_dir, tile_size, model_dir, gpu_ids, region_size, eage
                         filename.replace('.' + filename.split('.')[-1], f'_{name}.png')
                     ))
 
-                with open(os.path.join(
-                        output_dir,
-                        filename.replace('.' + filename.split('.')[-1], f'.json')
-                ), 'w') as f:
-                    json.dump(scoring, f, indent=2)
+                if scoring is not None:
+                    with open(os.path.join(
+                            output_dir,
+                            filename.replace('.' + filename.split('.')[-1], f'.json')
+                    ), 'w') as f:
+                        json.dump(scoring, f, indent=2)
 
 @cli.command()
 @click.option('--input-dir', type=str, required=True, help='Path to input images')

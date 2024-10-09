@@ -56,11 +56,11 @@ class DeepLIIFModel(BaseModel):
                 self.model_names.extend(['G5' + str(i)])
 
         # define networks (both generator and discriminator)
-        print(opt.netG)
         if isinstance(opt.netG, str):
             opt.netG = [opt.netG] * 4
         if isinstance(opt.net_gs, str):
             opt.net_gs = [opt.net_gs]*5
+
             
         self.netG1 = networks.define_G(opt.input_nc, opt.output_nc, opt.ngf, opt.netG[0], opt.norm,
                                       not opt.no_dropout, opt.init_type, opt.init_gain, self.gpu_ids, opt.padding)
@@ -74,13 +74,13 @@ class DeepLIIFModel(BaseModel):
         # DeepLIIF model currently uses one gs arch because there is only one explicit seg mod output
         self.netG51 = networks.define_G(opt.input_nc, opt.output_nc, opt.ngf, opt.net_gs[0], opt.norm,
                                       not opt.no_dropout, opt.init_type, opt.init_gain, self.gpu_ids)
-        self.netG52 = networks.define_G(opt.input_nc, opt.output_nc, opt.ngf, opt.net_gs[0], opt.norm,
+        self.netG52 = networks.define_G(opt.input_nc, opt.output_nc, opt.ngf, opt.net_gs[1], opt.norm,
                                       not opt.no_dropout, opt.init_type, opt.init_gain, self.gpu_ids)
-        self.netG53 = networks.define_G(opt.input_nc, opt.output_nc, opt.ngf, opt.net_gs[0], opt.norm,
+        self.netG53 = networks.define_G(opt.input_nc, opt.output_nc, opt.ngf, opt.net_gs[2], opt.norm,
                                       not opt.no_dropout, opt.init_type, opt.init_gain, self.gpu_ids)
-        self.netG54 = networks.define_G(opt.input_nc, opt.output_nc, opt.ngf, opt.net_gs[0], opt.norm,
+        self.netG54 = networks.define_G(opt.input_nc, opt.output_nc, opt.ngf, opt.net_gs[3], opt.norm,
                                       not opt.no_dropout, opt.init_type, opt.init_gain, self.gpu_ids)
-        self.netG55 = networks.define_G(opt.input_nc, opt.output_nc, opt.ngf, opt.net_gs[0], opt.norm,
+        self.netG55 = networks.define_G(opt.input_nc, opt.output_nc, opt.ngf, opt.net_gs[4], opt.norm,
                                       not opt.no_dropout, opt.init_type, opt.init_gain, self.gpu_ids)
 
 
@@ -113,10 +113,18 @@ class DeepLIIFModel(BaseModel):
 
             # initialize optimizers; schedulers will be automatically created by function <BaseModel.setup>.
             params = list(self.netG1.parameters()) + list(self.netG2.parameters()) + list(self.netG3.parameters()) + list(self.netG4.parameters()) + list(self.netG51.parameters()) + list(self.netG52.parameters()) + list(self.netG53.parameters()) + list(self.netG54.parameters()) + list(self.netG55.parameters())
-            self.optimizer_G = get_optimizer(opt.optimizer)(params, lr=opt.lr, betas=(opt.beta1, 0.999))
+            try:
+                self.optimizer_G = get_optimizer(opt.optimizer)(params, lr=opt.lr, betas=(opt.beta1, 0.999))
+            except:
+                print(f'betas are not used for optimizer torch.optim.{opt.optimizer} in generators')
+                self.optimizer_G = get_optimizer(opt.optimizer)(params, lr=opt.lr)
 
             params = list(self.netD1.parameters()) + list(self.netD2.parameters()) + list(self.netD3.parameters()) + list(self.netD4.parameters()) + list(self.netD51.parameters()) + list(self.netD52.parameters()) + list(self.netD53.parameters()) + list(self.netD54.parameters()) + list(self.netD55.parameters())
-            self.optimizer_D = get_optimizer(opt.optimizer)(params, lr=opt.lr, betas=(opt.beta1, 0.999))
+            try:
+                self.optimizer_D = get_optimizer(opt.optimizer)(params, lr=opt.lr, betas=(opt.beta1, 0.999))
+            except:
+                print(f'betas are not used for optimizer torch.optim.{opt.optimizer} in discriminators')
+                self.optimizer_D = get_optimizer(opt.optimizer)(params, lr=opt.lr)
 
             self.optimizers.append(self.optimizer_G)
             self.optimizers.append(self.optimizer_D)
@@ -339,10 +347,6 @@ class DeepLIIFModel(BaseModel):
         """
         Calculate losses but do not optimize parameters. Used in validation loss calculation during training.
         """
-        # for eval/val, schedule free optimizers need to be set to eval mode: https://github.com/facebookresearch/schedule_free/tree/main?tab=readme-ov-file#how-to-use
-        if 'schedulefree' in self.opt.optimizer:
-            self.optimizer_D.eval()
-            self.optimizer_G.eval()
         
         self.forward()                   # compute fake images: G(A)
         # update D
@@ -356,6 +360,7 @@ class DeepLIIFModel(BaseModel):
         self.set_requires_grad(self.netD54, True)  # enable backprop for D54
         self.set_requires_grad(self.netD55, True)  # enable backprop for D54
 
+        self.optimizer_D.zero_grad()        # set D's gradients to zero
         self.backward_D()                # calculate gradients for D
 
         # update G
@@ -369,8 +374,6 @@ class DeepLIIFModel(BaseModel):
         self.set_requires_grad(self.netD54, False)  # D54 requires no gradients when optimizing G54
         self.set_requires_grad(self.netD55, False)  # D54 requires no gradients when optimizing G54
 
+        self.optimizer_G.zero_grad()        # set G's gradients to zero
         self.backward_G()                   # calculate graidents for G
-        if 'schedulefree' in self.opt.optimizer:
-            self.optimizer_D.train()
-            self.optimizer_G.train()
             

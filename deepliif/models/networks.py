@@ -2,17 +2,22 @@ import torch
 import torch.nn as nn
 from torch.nn import init
 import functools
-from torch.optim import lr_scheduler, Adam 
-from ..util.adamw_schedulefree import AdamWScheduleFree
+from torch.optim import lr_scheduler
 
 import os
 
 from torchvision import models
 from .att_unet import AttU_Net
+from .vision_mamba import MambaUnet
+
 ###############################################################################
 # Helper Functions
 ###############################################################################
 from deepliif.util import util
+
+# as of pytorch 2.4, all optimizers start with an uppercase letter
+OPTIMIZER_MAPPING = {optimizer_name.lower():optimizer_name for optimizer_name in dir(torch.optim) if optimizer_name[0].isupper()} 
+
 
 class Identity(nn.Module):
     def forward(self, x):
@@ -39,10 +44,13 @@ def get_norm_layer(norm_type='instance'):
     return norm_layer
 
 def get_optimizer(optimizer_name):
-    if optimizer_name == 'adam':
-        return Adam
-    elif optimizer_name == 'adamw-schedulefree':
-        return AdamWScheduleFree
+    try:
+        return getattr(torch.optim, optimizer_name)
+    except:
+        try:
+            return getattr(torch.optim, OPTIMIZER_MAPPING[optimizer_name])
+        except:
+            raise NotImplementedError('optimizer [%s] is not found' % optimizer_name)
 
 def get_scheduler(optimizer, opt):
     """Return a learning rate scheduler
@@ -172,7 +180,9 @@ def define_G(input_nc, output_nc, ngf, netG, norm='batch', use_dropout=False, in
     elif netG == 'unet_512':
         net = UnetGenerator(input_nc, output_nc, 9, ngf, norm_layer=norm_layer, use_dropout=use_dropout)
     elif netG == 'unet_512_attention':
-        net = AttU_Net(img_ch=3,output_ch=3)
+        net = AttU_Net(img_ch=input_nc,output_ch=output_nc)
+    elif netG == 'unet_mamba':
+        net = MambaUnet(input_nc=input_nc,output_nc=output_nc)
     else:
         raise NotImplementedError('Generator model name [%s] is not recognized' % netG)
     return init_net(net, init_type, init_gain, gpu_ids)

@@ -13,6 +13,8 @@
     |
     <a href="https://onlinelibrary.wiley.com/share/author/4AEBAGEHSZE9GDP3H8MN?target=10.1111/his.15048">Histopathology'23</a>
     |
+    <a href="https://arxiv.org/abs/2405.08169">MICCAI'24</a>
+    |
     <a href="https://deepliif.org/">Cloud Deployment</a>
     |
     <a href="https://nadeemlab.github.io/DeepLIIF/">Documentation</a>
@@ -39,6 +41,9 @@ segmentation.*
 **DeepLIIF** is deployed as a free publicly available cloud-native platform (https://deepliif.org) with Bioformats (more than 150 input formats supported) and MLOps pipeline. We also release **DeepLIIF** implementations for single/multi-GPU training, Torchserve/Dask+Torchscript deployment, and auto-scaling via Pulumi (1000s of concurrent connections supported); details can be found in our [documentation](https://nadeemlab.github.io/DeepLIIF/). **DeepLIIF** can be run locally (GPU required) by [pip installing the package](https://github.com/nadeemlab/DeepLIIF/edit/main/README.md#installing-deepliif) and using the deepliif CLI command. **DeepLIIF** can be used remotely (no GPU required) through the https://deepliif.org website, calling the [cloud API via Python](https://github.com/nadeemlab/DeepLIIF/edit/main/README.md#cloud-deployment), or via the [ImageJ/Fiji plugin](https://github.com/nadeemlab/DeepLIIF/edit/main/README.md#imagej-plugin); details for the free cloud-native platform can be found in our [CVPR'22 paper](https://arxiv.org/pdf/2204.04494.pdf).
 
 © This code is made available for non-commercial academic purposes.
+
+![Version](https://img.shields.io/static/v1?label=latest&message=v1.1.11&color=darkgreen)
+[![Total Downloads](https://static.pepy.tech/personalized-badge/deepliif?period=total&units=international_system&left_color=grey&right_color=blue&left_text=total%20downloads)](https://pepy.tech/project/deepliif?&left_text=totalusers)
 
 ![overview_image](./images/overview.png)*Overview of DeepLIIF pipeline and sample input IHCs (different 
 brown/DAB markers -- BCL2, BCL6, CD10, CD3/CD8, Ki67) with corresponding DeepLIIF-generated hematoxylin/mpIF modalities 
@@ -85,6 +90,16 @@ Commands:
   train                  General-purpose training script for multi-task...
 ```
 
+**Note:** You might need to install a version of PyTorch that is compatible with your CUDA version. 
+Otherwise, only the CPU will be used. 
+Visit the [PyTorch website](https://pytorch.org/) for details. 
+You can confirm if your installation will run on the GPU by checking if the following returns `True`:
+
+```
+import torch
+torch.cuda.is_available()
+```
+
 ## Training Dataset
 For training, all image sets must be 512x512 and combined together in 3072x512 images (six images of size 512x512 stitched
 together horizontally).
@@ -111,7 +126,7 @@ deepliif prepare-training-data --input-dir /path/to/input/images
 To train a model:
 ```
 deepliif train --dataroot /path/to/input/images 
-                --name Model_Name 
+               --name Model_Name 
 ```
 or
 ```
@@ -157,7 +172,7 @@ The installed `deepliif` uses Dask to perform inference on the input IHC images.
 Before running the `test` command, the model files must be serialized using Torchscript.
 To serialize the model files:
 ```
-deepliif serialize --models-dir /path/to/input/model/files
+deepliif serialize --model-dir /path/to/input/model/files
                    --output-dir /path/to/output/model/files
 ```
 * By default, the model files are expected to be located in `DeepLIIF/model-server/DeepLIIF_Latest_Model`.
@@ -166,21 +181,23 @@ deepliif serialize --models-dir /path/to/input/model/files
 ## Testing
 To test the model:
 ```
-deepliif test --input-dir /path/to/input/images 
-              --output-dir /path/to/output/images 
-              --model-dir path/to/the/serialized/model
+deepliif test --input-dir /path/to/input/images
+              --output-dir /path/to/output/images
+              --model-dir /path/to/the/serialized/model
               --tile-size 512
 ```
 or
 ```
-python test.py --dataroot /path/to/input/images 
-               --name Model_Name  
+python test.py --dataroot /path/to/input/images
+               --results_dir /path/to/output/images
+               --checkpoints_dir /path/to/model/files
+               --name Model_Name
 ```
 * The latest version of the pretrained models can be downloaded [here](https://zenodo.org/record/4751737#.YKRTS0NKhH4).
 * Before running test on images, the model files must be serialized as described above.
 * The serialized model files are expected to be located in `DeepLIIF/model-server/DeepLIIF_Latest_Model`.
 * The test results will be saved to the specified output directory, which defaults to the input directory.
-* The default tile size is 512.
+* The tile size must be specified and is used to split the image into tiles for processing.  The tile size is based on the resolution (scan magnification) of the input image, and the recommended values are a tile size of 512 for 40x images, 256 for 20x, and 128 for 10x.  Note that the smaller the tile size, the longer inference will take.
 * Testing datasets can be downloaded [here](https://zenodo.org/record/4751737#.YKRTS0NKhH4).
 
 **Whole Slide Image (WSI) Inference:**  
@@ -195,7 +212,7 @@ Based on the available GPU resources, the region-size can be changed.
 ```
 deepliif test --input-dir /path/to/input/images 
               --output-dir /path/to/output/images 
-              --model-dir path/to/the/serialized/model
+              --model-dir /path/to/the/serialized/model
               --tile-size 512
               --region-size 20000
 ```
@@ -234,7 +251,7 @@ The plugin also supports submitting multiple ROIs at once:
 ## Cloud Deployment
 If you don't have access to GPU or appropriate hardware and don't want to install ImageJ, we have also created a [cloud-native DeepLIIF deployment](https://deepliif.org) with a user-friendly interface to upload images, visualize, interact, and download the final results.
 
-![DeepLIIF Website Demo](images/deepliif-website-demo-03.gif)
+![DeepLIIF Website Demo](images/deepliif-website-demo-04.gif)
 
 ## Cloud API Endpoints
 
@@ -532,5 +549,12 @@ If you find our work useful in your research or if you use parts of this code or
   journal = {Histopathology},
   year = {2023},
   doi = {https://doi.org/10.1111/his.15048}
+}
+
+@article{zehra2024deepliifstitch,
+author = {Zehra, Talat and Marino, Joseph and Wang, Wendy and Frantsuzov, Grigoriy and Nadeem, Saad},
+title = {Rethinking Histology Slide Digitization Workflows for Low-Resource Settings},
+journal = {International Conference on Medical Image Computing and Computer-Assisted Intervention (MICCAI)},
+year = {2024}
 }
 ```
