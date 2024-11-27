@@ -227,6 +227,12 @@ class InferenceTiler:
         self.pad_size = pad_size
         self.pad_color = pad_color
         self.res = {}
+        
+    def __len__(self):
+        """
+        Return the number of tiles
+        """
+        return len(range(0, self.image_height, self.center_height)) * len(range(0, self.image_width, self.center_width))
 
     def __iter__(self):
         """
