@@ -50,7 +50,7 @@ import click
 @click.option('--phase', default='test', help='this effectively refers to the subfolder name from where to load the images')
 @click.option('--gpu_ids', type=int, multiple=True, help='gpu-ids 0 gpu-ids 1 or gpu-ids -1 for CPU')
 @click.option('--batch_size', default=1, help='input batch size')
-def test(dataroot, results_dir, name, checkpoints_dir,num_test, num_test, phase, gpu_ids, batch_size):
+def test(dataroot, results_dir, name, checkpoints_dir, num_test, phase, gpu_ids, batch_size):
     # retrieve options used in training setting, similar to cli.py test
     model_dir = os.path.join(checkpoints_dir, name)
     opt = Options(path_file=os.path.join(model_dir,'train_opt.txt'), mode='test')
