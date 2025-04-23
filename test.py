@@ -29,8 +29,9 @@ See frequently asked questions at: https://github.com/junyanz/pytorch-CycleGAN-a
 import os
 import time
 from deepliif.options.test_options import TestOptions
+from deepliif.options import read_model_params
 from deepliif.data import create_dataset
-from deepliif.models import create_model, read_model_params
+from deepliif.models import create_model
 from deepliif.util.visualizer import save_images
 from deepliif.util import html
 
