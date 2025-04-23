@@ -54,7 +54,15 @@ if __name__ == '__main__':
             opt.norm = param_dict['norm']
             # opt.use_dropout = False if param_dict['no_dropout'] == 'True' else True # in DeepLIIFModel(), the option used is opt.no_dropout not opt.use_dropout
             # opt.padding_type = param_dict['padding'] # in DeepLIIFModel(), the option used is opt.padding not opt.padding_type
-            opt.padding = param_dict['padding'] 
+            opt.padding = param_dict['padding']
+            
+            if 'modalities_no' in param_dict:
+                opt.modalities_no = int(param_dict['modalities_no'])
+            if 'seg_gen' in param_dict:
+                opt.seg_gen = bool(param_dict['seg_gen'])
+            for attr_name in ['net_g','net_d','net_gs','net_ds']:
+                if attr_name in param_dict:
+                    setattr(opt,attr_name,param_dict[attr_name])
     
     # hard-code some parameters for test
     opt.num_threads = 0   # test code only supports num_threads = 1
