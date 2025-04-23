@@ -59,7 +59,7 @@ if __name__ == '__main__':
             if 'modalities_no' in param_dict:
                 opt.modalities_no = int(param_dict['modalities_no'])
             if 'seg_gen' in param_dict:
-                opt.seg_gen = bool(param_dict['seg_gen'])
+                opt.seg_gen = bool(param_dict['seg_gen'].strip().lower()=='true')
             for attr_name in ['net_g','net_d','net_gs','net_ds']:
                 if attr_name in param_dict:
                     setattr(opt,attr_name,param_dict[attr_name])
