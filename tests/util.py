@@ -48,3 +48,7 @@ def remove_contents_in_folder(folder):
                 shutil.rmtree(file_path)
         except Exception as e:
             print('Failed to delete %s. Reason: %s' % (file_path, e))
+
+
+def generate_baseline_inference_results(model_type):
+    pass

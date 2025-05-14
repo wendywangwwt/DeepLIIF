@@ -2,12 +2,17 @@ import pytest
 import subprocess
 import os
 import torch
+import pandas as pd
 from util import *
+from get_baseline_output import generate_baseline
 from deepliif.util import test_diff_img_dir
 
 available_gpus = torch.cuda.device_count()
 TOLERANCE = 0.0003
 TOLERANCE_SEG = 0.05
+
+THRESHOLD_DIFFSUM = {'intermediate_mod':100,'intermediate_seg':500,'seg':500,'postprocessed':1000}
+THRESHOLD_SSIM = {'intermediate_mod':TOLERANCE,'intermediate_seg':1-TOLERANCE_SEG*2,'seg':1-TOLERANCE_SEG*2, 'postprocessed':1-TOLERANCE_SEG*2}
 
 subdir_testpy = 'test_latest/images'
 
@@ -44,13 +49,65 @@ def match_suffix(l_suffix_cli, model='DeepLIIF'):
 
     return res_cli, res_testpy
 
+def get_diff_img_stats(d_res, threshold, direction='higher'):
+    """
+    Get string-formatted stats from image quality test results.
+    
+    direction: whether the score is the higher the better ("higher") or the lower the better ("lower")
+    """
+    if 'fn' in d_res.keys():
+        if len(d_res['fn']) > 0:
+            if direction == "lower":
+                return f"{sum(d_res['pass'])}/{len(d_res['pass'])} passed at threshold {threshold}, average score {np.mean(d_res['score'])} (max {np.max(d_res['score'])})"
+            else:
+                return f"{sum(d_res['pass'])}/{len(d_res['pass'])} passed at threshold {threshold}, average score {np.mean(d_res['score'])} (min {np.min(d_res['score'])})"
+    else:
+        string = []
+        for output_type, res in d_res.items():
+            if len(res['fn']) > 0:
+                if direction == "lower":
+                    string.append(f"{output_type}: {sum(d_res[output_type]['pass'])}/{len(d_res[output_type]['pass'])} passed at threshold {threshold[output_type]}, average score {np.mean(d_res[output_type]['score'])} (max {np.max(d_res[output_type]['score'])})")
+                else:
+                    string.append(f"{output_type}: {sum(d_res[output_type]['pass'])}/{len(d_res[output_type]['pass'])} passed at threshold {threshold[output_type]}, average score {np.mean(d_res[output_type]['score'])} (min {np.min(d_res[output_type]['score'])})")
+        return '\n'.join(string)
+    return f'Cannot compute stats on empty results: {d_res}'
+
+def convert_diff_img_res_to_pd(l_d_res):
+    """
+    Convert a list of image quality test results to a consolidated dataframe.
+    
+    l_d_res: a list of image quality test results
+    """
+    d = {}
+    if 'fn' in l_d_res[0].keys():
+        for k in l_d_res[0].keys():
+            d[k] = []
+            for d_res in l_d_res:
+                d[k] += d_res[k]
+    else:
+        l_output_type = list(l_d_res[0].keys())
+        d['output_type'] = []
+        for d_res in l_d_res:
+            for output_type, d_res_output_type in d_res.items():
+                for i,(k,v) in enumerate(d_res_output_type.items()):
+                    if k not in d.keys():
+                        d[k] = []
+                    d[k] += d_res[output_type][k]
+                    
+                    if i == 0:
+                        d['output_type'] += [output_type]*len(d_res[output_type][k])
+    
+    return pd.DataFrame(d)
+    
+                
 #### 0. test if test.py can run ####
 def test_testpy(tmp_path, model_dir, model_info):
     torch.cuda.nvtx.range_push("test_testpy")
     dirs_model = model_dir
     dirs_input = model_info['dir_input_testpy']
-    dirs_output_standard = model_info['dir_output_standard_testpy']
-    for dir_model, dir_input, dir_output_standard in zip(dirs_model, dirs_input, dirs_output_standard):
+    dirs_output_baseline = model_info['dir_output_baseline_testpy']
+    baselines = model_info['baseline']
+    for i, (dir_model, dir_input, dir_output_baseline) in enumerate(zip(dirs_model, dirs_input, dirs_output_baseline)):
         torch.cuda.nvtx.range_push(f"test_testpy {dir_model}")
         dir_output = tmp_path
         
@@ -66,9 +123,22 @@ def test_testpy(tmp_path, model_dir, model_info):
         num_output = len(fns_output)
         assert num_output > 0
         
-        test_diff_img_dir(str(dir_output),dir_output_standard, dir1_name='current',dir2_name='standard',method='sum',threshold=500,verbose=1)
-        test_diff_img_dir(str(dir_output),dir_output_standard, dir1_name='current',dir2_name='standard',method='ssim',threshold=1-TOLERANCE_SEG*2,verbose=1)        
-        remove_contents_in_folder(tmp_path)
+        for baseline in baselines:
+            print('Comparing against baseline commit',baseline)
+            generate_baseline(baseline, model_info, ['testpy'], index=i, verbose=0)
+            d_res_sum = test_diff_img_dir(str(dir_output),dir_output_baseline, dir1_name='current',dir2_name='standard',method='sum',threshold=THRESHOLD_DIFFSUM,suffix=model_info['suffix']['testpy'],ignore_check=True,verbose=0)
+            d_res_ssim = test_diff_img_dir(str(dir_output),dir_output_baseline, dir1_name='current',dir2_name='standard',method='ssim',threshold=THRESHOLD_SSIM,suffix=model_info['suffix']['testpy'],ignore_check=True,verbose=0)
+            
+            print("Diff sum:")
+            print(get_diff_img_stats(d_res_sum,THRESHOLD_DIFFSUM,'higher'))
+            print(f"SSIM:")
+            print(get_diff_img_stats(d_res_ssim,THRESHOLD_SSIM,'lower'))
+            
+            path_imagequality_output = f'ImageQualityTest_testpy_{model_info["model"]}_{baseline}_{i}.csv'
+            convert_diff_img_res_to_pd([d_res_sum,d_res_ssim]).to_csv(path_imagequality_output,index=False)
+            print('Saved image quality test output:',path_imagequality_output)
+
+        #remove_contents_in_folder(tmp_path)
         torch.cuda.nvtx.range_pop()
     torch.cuda.nvtx.range_pop()
 
@@ -77,9 +147,10 @@ def test_cli_inference(tmp_path, model_dir, model_info):
     torch.cuda.nvtx.range_push("test_cli_inference")
     dirs_model = model_dir
     dirs_input = model_info['dir_input_inference']
-    dirs_output_standard = model_info['dir_output_standard_inference']
+    dirs_output_baseline = model_info['dir_output_baseline_inference']
     tile_size = model_info['tile_size']
-    for dir_model, dir_input, dir_output_standard in zip(dirs_model, dirs_input, dirs_output_standard):
+    baselines = model_info['baseline']
+    for i, (dir_model, dir_input, dir_output_baseline) in enumerate(zip(dirs_model, dirs_input, dirs_output_baseline)):
         torch.cuda.nvtx.range_push(f"test_cli_inference {dir_model}")
         dir_output = tmp_path
         
@@ -94,8 +165,20 @@ def test_cli_inference(tmp_path, model_dir, model_info):
         num_output = len(fns_output)
         assert num_output > 0
         
-        test_diff_img_dir(str(dir_output),dir_output_standard, dir1_name='current',dir2_name='standard',method='sum',threshold=10000000,verbose=1)
-        test_diff_img_dir(str(dir_output),dir_output_standard, dir1_name='current',dir2_name='standard',method='ssim',threshold=0,verbose=1)
+        for baseline in baselines:
+            print('Comparing against baseline commit',baseline)
+            generate_baseline(baseline, model_info, ['cli'], index=i, verbose=0)
+            d_res_sum = test_diff_img_dir(str(dir_output),dir_output_baseline, dir1_name='current',dir2_name='standard',method='sum',threshold=THRESHOLD_DIFFSUM,suffix=model_info['suffix']['cli'],ignore_check=True,verbose=0)
+            d_res_ssim = test_diff_img_dir(str(dir_output),dir_output_baseline, dir1_name='current',dir2_name='standard',method='ssim',threshold=THRESHOLD_SSIM,suffix=model_info['suffix']['cli'],ignore_check=True,verbose=0)
+            
+            print("Diff sum:")
+            print(get_diff_img_stats(d_res_sum,THRESHOLD_DIFFSUM,'higher'))
+            print(f"SSIM:")
+            print(get_diff_img_stats(d_res_ssim,THRESHOLD_SSIM,'lower'))
+            
+            path_imagequality_output = f'ImageQualityTest_cli_inference_{model_info["model"]}_{baseline}_{i}.csv'
+            convert_diff_img_res_to_pd([d_res_sum,d_res_ssim]).to_csv(path_imagequality_output,index=False)
+            print('Saved image quality test output:',path_imagequality_output)
         
         remove_contents_in_folder(tmp_path)
         torch.cuda.nvtx.range_pop()

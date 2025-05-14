@@ -409,7 +409,7 @@ def read_results_from_pickle_file(input_addr):
     return results
 
 
-def test_diff_tensor(ts1,ts2,ts1_name=None,ts2_name=None,threshold=10,verbose=0):
+def test_diff_tensor(ts1,ts2,ts1_name=None,ts2_name=None,threshold=10,ignore_check=True,verbose=0):
     """
     Test if the given two tensors are similar.
     """
@@ -429,10 +429,13 @@ def test_diff_tensor(ts1,ts2,ts1_name=None,ts2_name=None,threshold=10,verbose=0)
         print(ts1_name,ts2_name)
         print('Dif sum:',torch.sum(abs_diff))
         print('max dif:{}'.format(torch.max(abs_diff)))
+    
+    diff_sum = torch.sum(abs_diff)
+    if not ignore_check:
+        assert diff_sum <= threshold, f"Sum of difference in predicted values {torch.sum(abs_diff)} is larger than threshold {threshold}"
+    return diff_sum <= threshold, diff_sum.detach().numpy()
 
-    assert torch.sum(abs_diff) <= threshold, f"Sum of difference in predicted values {torch.sum(abs_diff)} is larger than threshold {threshold}"
-
-def test_diff_img_object(img1,img2,img1_name=None,img2_name=None,method='sum',threshold=10,verbose=0):
+def test_diff_img_object(img1,img2,img1_name=None,img2_name=None,method='sum',threshold=10,ignore_check=True,verbose=0):
     """
     Test if the given two image objects are similar.
     
@@ -445,7 +448,7 @@ def test_diff_img_object(img1,img2,img1_name=None,img2_name=None,method='sum',th
     assert method in ["sum","ssim"], f'method {method} is not in ["sum","ssim"]'
     if method == 'sum':
         img2ts = transforms.ToTensor()
-        test_diff_tensor(img2ts(img1),img2ts(img2),ts1_name=img1_name,ts2_name=img2_name,threshold=threshold,verbose=verbose)
+        return test_diff_tensor(img2ts(img1),img2ts(img2),ts1_name=img1_name,ts2_name=img2_name,threshold=threshold,ignore_check=ignore_check,verbose=verbose)
     elif method == 'ssim':
         if verbose > 1:
             print(f'{img1_name}:')
@@ -461,10 +464,14 @@ def test_diff_img_object(img1,img2,img1_name=None,img2_name=None,method='sum',th
         if verbose > 0:
             print(img1_name,img2_name)
             print('ssim:',score,'threshold:',threshold)
-        assert score >= threshold
+        
+        if not ignore_check:
+            assert score >= threshold
+        
+        return score >= threshold, score
     
 
-def test_diff_img_fn(fn1,fn2,fn1_name=None,fn2_name=None,method='sum',threshold=10,verbose=0):
+def test_diff_img_fn(fn1,fn2,fn1_name=None,fn2_name=None,method='sum',threshold=10,ignore_check=True,verbose=0):
     """
     Test if the given two image files are similar.
     """
@@ -474,13 +481,19 @@ def test_diff_img_fn(fn1,fn2,fn1_name=None,fn2_name=None,method='sum',threshold=
     elif method == 'ssim':
         img1 = cv2.imread(fn1)
         img2 = cv2.imread(fn2)
-    test_diff_img_object(img1,img2,img1_name=fn1_name,img2_name=fn2_name,method=method,threshold=threshold,verbose=verbose)
+    return test_diff_img_object(img1,img2,img1_name=fn1_name,img2_name=fn2_name,method=method,threshold=threshold,ignore_check=ignore_check,verbose=verbose)
 
 
-def test_diff_img_dir(dir1,dir2,dir1_name=None,dir2_name=None,method='sum',threshold=10,verbose=0):
+def test_diff_img_dir(dir1,dir2,dir1_name=None,dir2_name=None,method='sum',threshold=10,suffix=None,ignore_check=True,verbose=0):
     """
     Test if the images in the two given directories (same name) are similar.
+    
+    threshold: a number, or a dictionary with key as output type and value as specific threshold
+    suffix: None (threshold should be a number applying to all filenames), or a dictionary with key as output type and value as list of suffix to match filenanme to
     """
+    if not isinstance(threshold,dict):
+        suffix = None
+    
     dir1_img = os.path.join(dir1,'test_latest','images')
     dir2_img = os.path.join(dir2,'test_latest','images')
     if os.path.exists(dir1_img) and os.path.exists(dir2_img):
@@ -492,19 +505,42 @@ def test_diff_img_dir(dir1,dir2,dir1_name=None,dir2_name=None,method='sum',thres
     
     fns1 = [fn for fn in os.listdir(dir1_img) if allowed_file(fn,excluding_names=[]) and '_real_' not in fn]
     fns2 = [fn for fn in os.listdir(dir2_img) if allowed_file(fn,excluding_names=[]) and '_real_' not in fn]
-    
+        
     # check number of elements
     #assert len(fns1) == len(fns2), f'Sanity check failed: number of output files are different in two directories ({dir1}:{len(fns1)},{dir2}:{len(fns2)})'
     # check value of elements
     #assert set(fns1) == set(fns2), f'Sanity check failed: output filenames are different in two directories'
     
-    for fn in set(fns1) & set(fns2): # only loop through common files
+    res = {'fn':[],'pass':[],'score':[],'method':[]} 
+    if suffix is not None:
+        res = {output_type:  {'fn':[],'pass':[],'score':[],'method':[]} for output_type in suffix.keys()}
+    
+    for fn in list(set(fns1) & set(fns2)): # only loop through common files
         path1 = os.path.join(dir1_img,fn)
         path2 = os.path.join(dir2_img,fn)
-        test_diff_img_fn(path1,path2,fn1_name=path1,fn2_name=path2,method=method,threshold=threshold,verbose=verbose)
+        
+        if suffix is not None:
+            for output_type,l_suffix in suffix.items():                    
+                if fn.endswith(tuple(l_suffix)):
+                    flag_pass, score = test_diff_img_fn(path1,path2,fn1_name=path1,fn2_name=path2,method=method,threshold=threshold[output_type],ignore_check=ignore_check,verbose=verbose)
+                    res[output_type]['fn'].append(fn)
+                    res[output_type]['pass'].append(flag_pass)
+                    res[output_type]['score'].append(score)
+                    res[output_type]['method'].append(method)
+                    break
+                
+        else:
+            flag_pass, score = test_diff_img_fn(path1,path2,fn1_name=path1,fn2_name=path2,method=method,threshold=threshold,ignore_check=ignore_check,verbose=verbose)
+            res['fn'].append(fn)
+            res['pass'].append(flag_pass)
+            res['score'].append(score)
+            res['method'].append(method)
+    
+    return res
+        
     
 
-def test_diff_original_serialized(model_original,model_serialized,example,verbose=0):
+def test_diff_original_serialized(model_original,model_serialized,example,ignore_check=False,verbose=0):
     """
     Used in cli.py serialize method to check if the original model output and the serialized
     model output are similar.
