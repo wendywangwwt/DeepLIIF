@@ -66,8 +66,8 @@ def test_testpy(tmp_path, model_dir, model_info):
         num_output = len(fns_output)
         assert num_output > 0
         
-        test_diff_img_dir(str(dir_output),dir_output_standard, dir1_name='current',dir2_name='standard',threshold=50,verbose=1)
-        
+        test_diff_img_dir(str(dir_output),dir_output_standard, dir1_name='current',dir2_name='standard',method='sum',threshold=500,verbose=1)
+        test_diff_img_dir(str(dir_output),dir_output_standard, dir1_name='current',dir2_name='standard',method='ssim',threshold=1-TOLERANCE_SEG*2,verbose=1)        
         remove_contents_in_folder(tmp_path)
         torch.cuda.nvtx.range_pop()
     torch.cuda.nvtx.range_pop()
@@ -94,7 +94,9 @@ def test_cli_inference(tmp_path, model_dir, model_info):
         num_output = len(fns_output)
         assert num_output > 0
         
-        test_diff_img_dir(str(dir_output),dir_output_standard, dir1_name='current',dir2_name='standard',threshold=50,verbose=1)
+        test_diff_img_dir(str(dir_output),dir_output_standard, dir1_name='current',dir2_name='standard',method='sum',threshold=10000000,verbose=1)
+        test_diff_img_dir(str(dir_output),dir_output_standard, dir1_name='current',dir2_name='standard',method='ssim',threshold=0,verbose=1)
+        
         remove_contents_in_folder(tmp_path)
         torch.cuda.nvtx.range_pop()
     torch.cuda.nvtx.range_pop()

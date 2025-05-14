@@ -10,6 +10,7 @@ from torchvision import transforms
 from skimage.filters import threshold_multiotsu
 
 from .visualizer import Visualizer
+from .util import ssim
 
 # Postfixes not to consider for segmentation
 from ..postprocessing import imadjust
@@ -412,7 +413,7 @@ def test_diff_tensor(ts1,ts2,ts1_name=None,ts2_name=None,threshold=10,verbose=0)
     """
     Test if the given two tensors are similar.
     """
-    if verbose > 0:
+    if verbose > 1:
         print(f'{ts1_name}:')
         print(ts1.shape)
         print(ts1[0, 0:10])
@@ -425,30 +426,58 @@ def test_diff_tensor(ts1,ts2,ts1_name=None,ts2_name=None,threshold=10,verbose=0)
 
     abs_diff = torch.abs(ts1-ts2)
     if verbose > 0:
-        print('Dif sum:')
-        print(torch.sum(abs_diff))
+        print(ts1_name,ts2_name)
+        print('Dif sum:',torch.sum(abs_diff))
         print('max dif:{}'.format(torch.max(abs_diff)))
 
     assert torch.sum(abs_diff) <= threshold, f"Sum of difference in predicted values {torch.sum(abs_diff)} is larger than threshold {threshold}"
 
-def test_diff_img_object(img1,img2,img1_name=None,img2_name=None,threshold=10,verbose=0):
+def test_diff_img_object(img1,img2,img1_name=None,img2_name=None,method='sum',threshold=10,verbose=0):
     """
     Test if the given two image objects are similar.
+    
+    method: one of ["sum","ssim"]
+      sum: sum of absoluate difference in pixel values, range [0,+inf), the lower the better
+      ssim: ssim score, range [-1,1], the higher the better
+    
+    Note: this is the lowest-level function for the current implementation of SSIM comparison used in tests.
     """
-    img2ts = transforms.ToTensor()
-    test_diff_tensor(img2ts(img1),img2ts(img2),ts1_name=img1_name,ts2_name=img2_name,threshold=threshold,verbose=verbose)
+    assert method in ["sum","ssim"], f'method {method} is not in ["sum","ssim"]'
+    if method == 'sum':
+        img2ts = transforms.ToTensor()
+        test_diff_tensor(img2ts(img1),img2ts(img2),ts1_name=img1_name,ts2_name=img2_name,threshold=threshold,verbose=verbose)
+    elif method == 'ssim':
+        if verbose > 1:
+            print(f'{img1_name}:')
+            print(img1.shape)
+            print(img1[0, 0:10])
+            print('min abs value:{}'.format(img1.min()))
+            
+            print(f'{img2_name}:')
+            print(img2.shape)
+            print(img2[0, 0:10])
+            print('min abs value:{}'.format(img2.min()))
+        score = ssim(img1,img2, data_range=img1.max() - img2.min(), multichannel=True, channel_axis=2)
+        if verbose > 0:
+            print(img1_name,img2_name)
+            print('ssim:',score,'threshold:',threshold)
+        assert score >= threshold
     
 
-def test_diff_img_fn(fn1,fn2,fn1_name=None,fn2_name=None,threshold=10,verbose=0):
+def test_diff_img_fn(fn1,fn2,fn1_name=None,fn2_name=None,method='sum',threshold=10,verbose=0):
     """
     Test if the given two image files are similar.
     """
-    img1 = Image.open(fn1).convert('RGB')
-    img2 = Image.open(fn2).convert('RGB')
-    test_diff_img_object(img1,img2,img1_name=fn1_name,img2_name=fn2_name,threshold=threshold,verbose=verbose)
+    if method == 'sum':
+        img1 = Image.open(fn1).convert('RGB')
+        img2 = Image.open(fn2).convert('RGB')
+    elif method == 'ssim':
+        img1 = cv2.imread(fn1)
+        img2 = cv2.imread(fn2)
+    test_diff_img_object(img1,img2,img1_name=fn1_name,img2_name=fn2_name,method=method,threshold=threshold,verbose=verbose)
 
 
-def test_diff_img_dir(dir1,dir2,dir1_name=None,dir2_name=None,threshold=10,verbose=0):
+def test_diff_img_dir(dir1,dir2,dir1_name=None,dir2_name=None,method='sum',threshold=10,verbose=0):
     """
     Test if the images in the two given directories (same name) are similar.
     """
@@ -472,7 +501,7 @@ def test_diff_img_dir(dir1,dir2,dir1_name=None,dir2_name=None,threshold=10,verbo
     for fn in set(fns1) & set(fns2): # only loop through common files
         path1 = os.path.join(dir1_img,fn)
         path2 = os.path.join(dir2_img,fn)
-        test_diff_img_fn(path1,path2,fn1_name=path1,fn2_name=path2,threshold=threshold,verbose=verbose)
+        test_diff_img_fn(path1,path2,fn1_name=path1,fn2_name=path2,method=method,threshold=threshold,verbose=verbose)
     
 
 def test_diff_original_serialized(model_original,model_serialized,example,verbose=0):
@@ -484,10 +513,8 @@ def test_diff_original_serialized(model_original,model_serialized,example,verbos
 
     orig_res = model_original(example)
     ts_res = model_serialized(example)
-    test_diff_tensor(orig_res,ts_res,ts1_name='Original',ts2_name='Trochscript',threshold=threshold,verbose=verbose)
+    test_diff_tensor(orig_res,ts_res,ts1_name='Original',ts2_name='Trochscript',method='sum',threshold=threshold,verbose=verbose)
     
-
-
 
 
 def disable_batchnorm_tracking_stats(model):
