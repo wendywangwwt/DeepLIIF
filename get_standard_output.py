@@ -2,8 +2,9 @@ import subprocess
 import os
 from conftest import MODEL_INFO
 
+# latest commit: '9b3604d'
 COMMIT_INFO = {'latest':'tests-image-quality-baseline-latest', # 20230307 Merge pull request nadeemlab#25 from wendywangwwt/main-stable-inference
-               'ext':'tests-image-quality-baseline-ext', #20230725 Merge pull request nadeemlab#30 from wendywangwwt/main-ext-model-class
+               'ext':'c1e7aee',#20231222 Use 1024x1024 for deepliif extension model #'tests-image-quality-baseline-ext', #20230725 Merge pull request nadeemlab#30 from wendywangwwt/main-ext-model-class
                'sdg':'tests-image-quality-baseline-sdg', #20240207 Merge pull request nadeemlab#37 from wendywangwwt/main-sdg
                'cyclegan':'tests-image-quality-baseline-cyclegan' #20250402 Merge pull request nadeemlab#53 from wendywangwwt/main-pas-transfer
 }
@@ -66,8 +67,14 @@ if __name__ == "__main__":
             
             if model_name in ['DeepLIIF','DeepLIIFExt']:
                 # deepliif model at that time still requires --model and --name as input to test.py
-                cmd = f"python test.py --checkpoints_dir {dir_model} --dataroot {dir_input} --model {model_info['model']} --name . --results_dir {dir_output}"
+                cmd = f"python test.py --checkpoints_dir {dir_model} --dataroot {dir_input} --model {model_name} --name . --results_dir {dir_output}"
                 res = run_command_at_git_version(commit_hash,cmd)
+                if res.returncode != 0:
+                    cmd = f"python test.py --checkpoints_dir {dir_model} --dataroot {dir_input} --name . --results_dir {dir_output}"
+                    res = run_command_at_git_version(commit_hash,cmd)
+                
+                if res.returncode != 0:
+                    print('FAILED:',res.stderr)
             else:
                 cmd = f"python test.py --checkpoints_dir {dir_model} --dataroot {dir_input} --results_dir {dir_output}"
                 res = run_command_at_git_version(commit_hash,cmd)
