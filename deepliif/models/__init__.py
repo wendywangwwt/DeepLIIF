@@ -279,10 +279,12 @@ def run_dask(img, model_path, eager_mode=False, opt=None, seg_only=False):
             seg_map = {k: v for k, v in seg_map.items() if weights[v] != 0}
         
         lazy_gens = {k: forward(ts, nets[k]) for k in seg_map}
+        if 'G4' not in seg_map:
+            lazy_gens['G4'] = forward(ts, nets['G4'])
         gens = compute(lazy_gens)[0]
         
         lazy_segs = {v: forward(gens[k], nets[v]).to(torch.device('cpu')) for k, v in seg_map.items()}
-        if weights['G51'] != 0:
+        if not seg_only or weights['G51'] != 0:
             lazy_segs['G51'] = forward(ts, nets['G51']).to(torch.device('cpu'))
         segs = compute(lazy_segs)[0]
     
@@ -321,7 +323,7 @@ def run_dask(img, model_path, eager_mode=False, opt=None, seg_only=False):
         return res
     else:
         raise Exception(f'run_dask() not fully implemented for {opt.model}')
-      
+
 
 def is_empty(tile):
     thresh = 15
@@ -334,18 +336,24 @@ def is_empty(tile):
 def run_wrapper(tile, run_fn, model_path, eager_mode=False, opt=None, seg_only=False):
     if opt.model == 'DeepLIIF':
         if is_empty(tile):
-            return {
-                'G1': Image.new(mode='RGB', size=(512, 512), color=(201, 211, 208)),
-                'G2': Image.new(mode='RGB', size=(512, 512), color=(10, 10, 10)),
-                'G3': Image.new(mode='RGB', size=(512, 512), color=(0, 0, 0)),
-                'G4': Image.new(mode='RGB', size=(512, 512), color=(10, 10, 10)),
-                'G5': Image.new(mode='RGB', size=(512, 512), color=(0, 0, 0)),
-                'G51': Image.new(mode='RGB', size=(512, 512), color=(0, 0, 0)),
-                'G52': Image.new(mode='RGB', size=(512, 512), color=(0, 0, 0)),
-                'G53': Image.new(mode='RGB', size=(512, 512), color=(0, 0, 0)),
-                'G54': Image.new(mode='RGB', size=(512, 512), color=(0, 0, 0)),
-                'G55': Image.new(mode='RGB', size=(512, 512), color=(0, 0, 0)),
-            }
+            if seg_only:
+                return {
+                    'G4': Image.new(mode='RGB', size=(512, 512), color=(10, 10, 10)),
+                    'G5': Image.new(mode='RGB', size=(512, 512), color=(0, 0, 0)),
+                }
+            else :
+                return {
+                    'G1': Image.new(mode='RGB', size=(512, 512), color=(201, 211, 208)),
+                    'G2': Image.new(mode='RGB', size=(512, 512), color=(10, 10, 10)),
+                    'G3': Image.new(mode='RGB', size=(512, 512), color=(0, 0, 0)),
+                    'G4': Image.new(mode='RGB', size=(512, 512), color=(10, 10, 10)),
+                    'G5': Image.new(mode='RGB', size=(512, 512), color=(0, 0, 0)),
+                    'G51': Image.new(mode='RGB', size=(512, 512), color=(0, 0, 0)),
+                    'G52': Image.new(mode='RGB', size=(512, 512), color=(0, 0, 0)),
+                    'G53': Image.new(mode='RGB', size=(512, 512), color=(0, 0, 0)),
+                    'G54': Image.new(mode='RGB', size=(512, 512), color=(0, 0, 0)),
+                    'G55': Image.new(mode='RGB', size=(512, 512), color=(0, 0, 0)),
+                }
         else:
             return run_fn(tile, model_path, eager_mode, opt, seg_only)
     elif opt.model in ['DeepLIIFExt', 'SDG']:
@@ -470,7 +478,7 @@ def postprocess(orig, images, tile_size, model, seg_thresh=150, size_thresh='def
 
 def infer_modalities(img, tile_size, model_dir, eager_mode=False,
                      color_dapi=False, color_marker=False, opt=None,
-                     return_seg_intermediate=False):
+                     return_seg_intermediate=False, seg_only=False):
     """
     This function is used to infer modalities for the given image using a trained model.
     :param img: The input image.
@@ -497,7 +505,8 @@ def infer_modalities(img, tile_size, model_dir, eager_mode=False,
         color_dapi=color_dapi,
         color_marker=color_marker,
         opt=opt,
-        return_seg_intermediate=return_seg_intermediate
+        return_seg_intermediate=return_seg_intermediate,
+        seg_only=seg_only
     )
     
     if not hasattr(opt,'seg_gen') or (hasattr(opt,'seg_gen') and opt.seg_gen): # the first condition accounts for old settings of deepliif; the second refers to deepliifext models
