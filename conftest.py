@@ -20,7 +20,7 @@ MODEL_INFO = {'latest':{'model':'DeepLIIF', # cli.py train looks for subfolder "
                         'dir_output_baseline_inference':['Datasets_baseline/Sample_Dataset/test_cli'],
                         'suffix':{'testpy':{'intermediate_mod':['_B_1.png','_B_2.png','_B_3.png','_B_4.png'],'seg':['_B_5.png']},
                                   'cli':{'intermediate_mod':['_DAPI.png','_Hema.png','_Lap2.png','_Marker.png'],
-                                         'intermediate_seg':['_DAPI_s.png'],
+                                         'intermediate_seg':['_s.png'],
                                          'seg':['_Seg.png'],'postprocessed':['_SegOverlaid.png','_SegRefined.png']}}
                         },
               'ext':{'model':'DeepLIIFExt',
@@ -31,7 +31,7 @@ MODEL_INFO = {'latest':{'model':'DeepLIIF', # cli.py train looks for subfolder "
                      'modalities_no':[4,5],
                      'seg_gen':[True,False],
                      'tile_size':1024,
-                     'baseline':['c1e7aee'],
+                     'baseline':['tests-image-quality-baseline-ext'],
                      'dir_output_baseline_testpy':['Datasets_baseline/Sample_Dataset_ext_withseg/test','Datasets_baseline/Sample_Dataset_ext_noseg/test'],
                      'dir_output_baseline_inference':['Datasets_baseline/Sample_Dataset_ext_withseg/test_cli','Datasets_baseline/Sample_Dataset_ext_noseg/test_cli'],
                      'suffix':{'testpy':{'intermediate_mod':['_B_1.png','_B_2.png','_B_3.png','_B_4.png','_B_5.png'],

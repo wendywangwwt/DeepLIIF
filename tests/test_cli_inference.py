@@ -160,7 +160,9 @@ def test_cli_inference(tmp_path, model_dir, model_info):
         num_input = len(fns_input)
         assert num_input > 0
         
-        res = subprocess.run(f'python cli.py test --model-dir {dir_model} --input-dir {dir_input} --output-dir {dir_output} --tile-size {tile_size}',shell=True)
+        res = subprocess.run(f'python cli.py test --model-dir {dir_model} --input-dir {dir_input} --output-dir {dir_output} --tile-size {tile_size} --seg-intermediate',shell=True)
+        if res.returncode != 0:
+            res = subprocess.run(f'python cli.py test --model-dir {dir_model} --input-dir {dir_input} --output-dir {dir_output} --tile-size {tile_size}',shell=True)
         assert res.returncode == 0
         
         fns_output = [f for f in os.listdir(dir_output) if os.path.isfile(os.path.join(dir_output, f)) and f.endswith('png')]

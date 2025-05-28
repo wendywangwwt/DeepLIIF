@@ -121,8 +121,12 @@ def generate_baseline(commit_info, model_info, inference_type=['testpy','cli'], 
                     if verbose > 0:
                         print(f'Running cli inference with model {dir_model}...')
                     ensure_exists(dir_output)
-                    cmd = f'python cli.py test --model-dir {dir_model} --input-dir {dir_input} --output-dir {dir_output} --tile-size {tile_size}'
+                    cmd = f'python cli.py test --model-dir {dir_model} --input-dir {dir_input} --output-dir {dir_output} --tile-size {tile_size} --seg-intermediate'
                     res = run_command_at_git_version(commit_hash,cmd)
+                    if res.returncode != 0:
+                        cmd = f'python cli.py test --model-dir {dir_model} --input-dir {dir_input} --output-dir {dir_output} --tile-size {tile_size}'
+                        res = run_command_at_git_version(commit_hash,cmd)
+                        
                     if res.returncode != 0:
                         raise Exception(f'FAILED: {res.stderr}')
             if verbose > 0:
