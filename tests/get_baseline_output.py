@@ -16,7 +16,10 @@ def run_command_at_git_version(commit_hash, command):
     Args:
         commit_hash: The git commit hash or tag to switch to
         command: Command to run (as string)
-    """    
+    
+    """
+    flag_error = False
+    msg_error = ''
     try:
         # get the current branch/commit
         current_branch = subprocess.check_output("git rev-parse --abbrev-ref HEAD", shell=True).decode().strip()
@@ -32,7 +35,8 @@ def run_command_at_git_version(commit_hash, command):
         return res
         
     except Exception as e:
-        print(f'Failed: {e}')
+        flag_error = True
+        msg_error += str(e)
     
     finally:
         # switch back to the original branch/commit
@@ -43,6 +47,10 @@ def run_command_at_git_version(commit_hash, command):
         if "No local changes" not in stash_output:
             print('Pop stash..')
             subprocess.check_call("git stash pop", shell=True, stdout=subprocess.DEVNULL)
+        
+        if flag_error:
+            raise Exception(f'Failed: {msg_error}')
+
 
 def ensure_exists(d):
     if not os.path.exists(d):
@@ -94,12 +102,12 @@ def generate_baseline(commit_info, model_info, inference_type=['testpy','cli'], 
                             res = run_command_at_git_version(commit_hash,cmd)
                         
                         if res.returncode != 0:
-                            print('FAILED:',res.stderr)
+                            raise Exception(f'FAILED: {res.stderr}')
                     else:
                         cmd = f"python test.py --checkpoints_dir {dir_model} --dataroot {dir_input} --results_dir {dir_output}"
                         res = run_command_at_git_version(commit_hash,cmd)
                     if res.returncode != 0:
-                        print('FAILED:',res.stderr)
+                        raise Exception(f'FAILED: {res.stderr}')
             if verbose > 0:
                 print(f'Finished testpy inference for model type {model_type}.')
                 print('*'*50)
@@ -116,7 +124,7 @@ def generate_baseline(commit_info, model_info, inference_type=['testpy','cli'], 
                     cmd = f'python cli.py test --model-dir {dir_model} --input-dir {dir_input} --output-dir {dir_output} --tile-size {tile_size}'
                     res = run_command_at_git_version(commit_hash,cmd)
                     if res.returncode != 0:
-                        print('FAILED:',res.stderr)
+                        raise Exception(f'FAILED: {res.stderr}')
             if verbose > 0:
                 print(f'Finished cli inference for model type/name {model_type}.')
     print('Completed generating standard output for all model types.')

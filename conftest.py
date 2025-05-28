@@ -15,10 +15,7 @@ MODEL_INFO = {'latest':{'model':'DeepLIIF', # cli.py train looks for subfolder "
                         'modalities_no': [4],
                         'seg_gen':[True],
                         'tile_size':512,
-                        'baseline':[#'tests-image-quality-baseline-latest',
-                                    #'7a9c30c', # adding return_seg_intermediate
-                                    'fa11236' # statistics calculation fix after adding return_seg_intermediate
-                                    ],
+                        'baseline':['tests-image-quality-baseline-latest'],
                         'dir_output_baseline_testpy':['Datasets_baseline/Sample_Dataset/test'],
                         'dir_output_baseline_inference':['Datasets_baseline/Sample_Dataset/test_cli'],
                         'suffix':{'testpy':{'intermediate_mod':['_B_1.png','_B_2.png','_B_3.png','_B_4.png'],'seg':['_B_5.png']},

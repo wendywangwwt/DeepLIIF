@@ -125,7 +125,9 @@ def test_testpy(tmp_path, model_dir, model_info):
         
         for baseline in baselines:
             print('Comparing against baseline commit',baseline)
+            remove_contents_in_folder(dir_output_baseline)
             generate_baseline(baseline, model_info, ['testpy'], index=i, verbose=0)
+            
             d_res_sum = test_diff_img_dir(str(dir_output),dir_output_baseline, dir1_name='current',dir2_name='standard',method='sum',threshold=THRESHOLD_DIFFSUM,suffix=model_info['suffix']['testpy'],ignore_check=True,verbose=0)
             d_res_ssim = test_diff_img_dir(str(dir_output),dir_output_baseline, dir1_name='current',dir2_name='standard',method='ssim',threshold=THRESHOLD_SSIM,suffix=model_info['suffix']['testpy'],ignore_check=True,verbose=0)
             
@@ -138,7 +140,7 @@ def test_testpy(tmp_path, model_dir, model_info):
             convert_diff_img_res_to_pd([d_res_sum,d_res_ssim]).to_csv(path_imagequality_output,index=False)
             print('Saved image quality test output:',path_imagequality_output)
 
-        #remove_contents_in_folder(tmp_path)
+        remove_contents_in_folder(tmp_path)
         torch.cuda.nvtx.range_pop()
     torch.cuda.nvtx.range_pop()
 
@@ -167,7 +169,9 @@ def test_cli_inference(tmp_path, model_dir, model_info):
         
         for baseline in baselines:
             print('Comparing against baseline commit',baseline)
+            remove_contents_in_folder(dir_output_baseline)
             generate_baseline(baseline, model_info, ['cli'], index=i, verbose=0)
+            
             d_res_sum = test_diff_img_dir(str(dir_output),dir_output_baseline, dir1_name='current',dir2_name='standard',method='sum',threshold=THRESHOLD_DIFFSUM,suffix=model_info['suffix']['cli'],ignore_check=True,verbose=0)
             d_res_ssim = test_diff_img_dir(str(dir_output),dir_output_baseline, dir1_name='current',dir2_name='standard',method='ssim',threshold=THRESHOLD_SSIM,suffix=model_info['suffix']['cli'],ignore_check=True,verbose=0)
             
