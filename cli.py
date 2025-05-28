@@ -562,7 +562,7 @@ def serialize(model_dir, output_dir, device, verbose):
         print('PASS')
          
 
-@cli.command()
+@cli.command(context_settings={'ignore_unknown_options':True})
 @click.option('--input-dir', default='./Sample_Large_Tissues/', help='reads images from here')
 @click.option('--output-dir', help='saves results here.')
 @click.option('--tile-size', default=None, help='tile size')
@@ -572,10 +572,11 @@ def serialize(model_dir, output_dir, device, verbose):
                                                    'So the WSI image is read region by region. '
                                                    'This parameter specifies the size each region to be read into GPU for inferrence.')
 @click.option('--eager-mode', is_flag=True, help='use eager mode (loading original models, otherwise serialized ones)')
+@click.option('--seg-intermediate', is_flag=True, help='also save intermediate segmentation images (currently only applies to DeepLIIF model)')
 @click.option('--color-dapi', is_flag=True, help='color dapi image to produce the same coloring as in the paper')
 @click.option('--color-marker', is_flag=True, help='color marker image to produce the same coloring as in the paper')
 def test(input_dir, output_dir, tile_size, model_dir, gpu_ids, region_size, eager_mode,
-         color_dapi, color_marker):
+         seg_intermediate, color_dapi, color_marker):
     
     """Test trained models
     """
@@ -619,7 +620,7 @@ def test(input_dir, output_dir, tile_size, model_dir, gpu_ids, region_size, eage
                 print(time.time() - start_time)
             else:
                 img = Image.open(os.path.join(input_dir, filename)).convert('RGB')
-                images, scoring = infer_modalities(img, tile_size, model_dir, eager_mode, color_dapi, color_marker, opt)
+                images, scoring = infer_modalities(img, tile_size, model_dir, eager_mode, color_dapi, color_marker, opt, return_seg_intermediate=seg_intermediate)
 
                 for name, i in images.items():
                     i.save(os.path.join(
