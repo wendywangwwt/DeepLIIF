@@ -829,7 +829,7 @@ def serialize(model_dir, output_dir, device, epoch, verbose):
 @click.option('--output-dir', help='saves results here.')
 @click.option('--tile-size', type=click.IntRange(min=1, max=None), required=True, help='tile size')
 @click.option('--model-dir', default='./model-server/DeepLIIF_Latest_Model/', help='load models from here.')
-@click.option('--filename-pattern', default='*', help='run inference on files of which the name matches the pattern.')
+@click.option('--filename-pattern', default=['*'], multiple=True, help='run inference on files of which the name matches the pattern.')
 @click.option('--gpu-ids', type=int, multiple=True, help='gpu-ids 0 gpu-ids 1 or gpu-ids -1 for CPU')
 @click.option('--eager-mode', is_flag=True, help='use eager mode (loading original models, otherwise serialized ones)')
 @click.option('--epoch', default='latest',
@@ -854,13 +854,16 @@ def test(input_dir, output_dir, tile_size, model_dir, filename_pattern, gpu_ids,
     elif seg_intermediate and seg_only:
         seg_intermediate = False
 
-    if filename_pattern == '*':
+    if '*' in filename_pattern:
         print('use all alowed files')
         image_files = [fn for fn in os.listdir(input_dir) if allowed_file(fn)]
     else:
         import glob
         print('match files using filename pattern',filename_pattern)
-        image_files = [os.path.basename(f) for f in glob.glob(os.path.join(input_dir, filename_pattern))]
+        image_files = []
+        for pattern in filename_pattern:
+          image_files += [os.path.basename(f) for f in glob.glob(os.path.join(input_dir, pattern))]
+        image_files = list(set(image_files))
     print(len(image_files),'image files')
     
     files = os.listdir(model_dir)
