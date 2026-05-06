@@ -1,9 +1,9 @@
 
 
-def check_weights(model, modalities_no, seg_weights, loss_weights_g, loss_weights_d):
-    assert sum(seg_weights) == 1, 'seg weights should add up to 1'
-    assert sum(loss_weights_g) == 1, 'loss weights g should add up to 1'
-    assert sum(loss_weights_d) == 1, 'loss weights d should add up to 1'
+def check_weights(model, modalities_no, seg_weights, loss_weights_g, loss_weights_d, tolerance=1e-10):
+    assert sum(seg_weights) <= 1+tolerance and sum(seg_weights) >= 1-tolerance, 'seg weights should add up to 1'
+    assert sum(loss_weights_g) <= 1+tolerance and sum(loss_weights_g) >= 1-tolerance, 'loss weights g should add up to 1'
+    assert sum(loss_weights_d) <= 1+tolerance and sum(loss_weights_d) >= 1-tolerance, 'loss weights d should add up to 1'
     
     if model in ['DeepLIIF','DeepLIIFKD']:
         # +1 because input becomes an additional modality used in generating the final segmentation
