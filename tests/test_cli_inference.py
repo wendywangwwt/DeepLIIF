@@ -2,11 +2,13 @@ import pytest
 import subprocess
 import os
 import torch
+import time
 from util import *
 
 available_gpus = torch.cuda.device_count()
 TOLERANCE = 0.0003
 TOLERANCE_SEG = 0.05
+CHECK_GPU_WITH_PID = False # if true, use pynvml to check if pid appears on expected gpu devices (this does not work from within docker); otherwise check gpu memory consumption
 
 subdir_testpy = 'test_latest/images'
 
@@ -107,8 +109,10 @@ def test_cli_inference_cpu(tmp_path, model_dir, model_info):
         num_input = len(fns_input)
         assert num_input > 0
         
-        res = subprocess.run(f'python cli.py test --model-dir {dir_model} --input-dir {dir_input} --output-dir {dir_output} --tile-size {tile_size} --gpu-ids -1',shell=True)
-        assert res.returncode == 0
+        #res = subprocess.run(f'python cli.py test --model-dir {dir_model} --input-dir {dir_input} --output-dir {dir_output} --tile-size {tile_size} --gpu-ids -1',shell=True)
+        returncode = run_and_check_device(f'python cli.py test --model-dir {dir_model} --input-dir {dir_input} --output-dir {dir_output} --tile-size {tile_size} --gpu-ids -1', 
+                                       check_gpu_with_pid=CHECK_GPU_WITH_PID, gpu_in_use=False)
+        assert returncode == 0
         
         fns_output = [f for f in os.listdir(dir_output) if os.path.isfile(os.path.join(dir_output, f)) and f.endswith('png')]
         num_output = len(fns_output)
@@ -133,8 +137,10 @@ def test_cli_inference_gpu_single(tmp_path, model_dir, model_info):
             fns_input = [f for f in os.listdir(dir_input) if os.path.isfile(os.path.join(dir_input, f)) and f.endswith('png')]
             num_input = len(fns_input)
             assert num_input > 0
-            res = subprocess.run(f'python cli.py test --model-dir {dir_model} --input-dir {dir_input} --output-dir {dir_output} --tile-size {tile_size} --gpu-ids 0',shell=True)
-            assert res.returncode == 0
+            # res = subprocess.run(f'python cli.py test --model-dir {dir_model} --input-dir {dir_input} --output-dir {dir_output} --tile-size {tile_size} --gpu-ids 0',shell=True)            
+            returncode = run_and_check_device(f'python cli.py test --model-dir {dir_model} --input-dir {dir_input} --output-dir {dir_output} --tile-size {tile_size}', 
+                                           l_gpu_ids_to_check=[0], check_gpu_with_pid=CHECK_GPU_WITH_PID)
+            assert returncode == 0
             fns_output = [f for f in os.listdir(dir_output) if os.path.isfile(os.path.join(dir_output, f)) and f.endswith('png')]
             num_output = len(fns_output)
             assert num_output > 0
@@ -160,8 +166,10 @@ def test_cli_inference_gpu_multi(tmp_path, model_dir, model_info):
             num_input = len(fns_input)
             assert num_input > 0
             
-            res = subprocess.run(f'python cli.py test --model-dir {dir_model} --input-dir {dir_input} --output-dir {dir_output} --tile-size {tile_size} --gpu-ids 1 --gpu-ids 0',shell=True)
-            assert res.returncode == 0
+            #res = subprocess.run(f'python cli.py test --model-dir {dir_model} --input-dir {dir_input} --output-dir {dir_output} --tile-size {tile_size} --gpu-ids 1 --gpu-ids 0',shell=True)
+            returncode = run_and_check_device(f'python cli.py test --model-dir {dir_model} --input-dir {dir_input} --output-dir {dir_output} --tile-size {tile_size}', 
+                                           l_gpu_ids_to_check=[0,1], check_gpu_with_pid=CHECK_GPU_WITH_PID)
+            assert returncode == 0
             
             fns_output = [f for f in os.listdir(dir_output) if os.path.isfile(os.path.join(dir_output, f)) and f.endswith('png')]
             num_output = len(fns_output)
@@ -212,8 +220,10 @@ def test_cli_inference_eager_cpu(tmp_path, model_dir, model_info):
         num_input = len(fns_input)
         assert num_input > 0
         
-        res = subprocess.run(f'python cli.py test --model-dir {dir_model} --input-dir {dir_input} --output-dir {dir_output} --tile-size {tile_size} --eager-mode --gpu-ids -1',shell=True)
-        assert res.returncode == 0
+        # res = subprocess.run(f'python cli.py test --model-dir {dir_model} --input-dir {dir_input} --output-dir {dir_output} --tile-size {tile_size} --eager-mode --gpu-ids -1',shell=True)
+        returncode = run_and_check_device(f'python cli.py test --model-dir {dir_model} --input-dir {dir_input} --output-dir {dir_output} --tile-size {tile_size} --eager-mode --gpu-ids -1', 
+                                       check_gpu_with_pid=CHECK_GPU_WITH_PID, gpu_in_use=False)
+        assert returncode == 0
         
         fns_output = [f for f in os.listdir(dir_output) if os.path.isfile(os.path.join(dir_output, f)) and f.endswith('png')]
         num_output = len(fns_output)
@@ -238,8 +248,10 @@ def test_cli_inference_eager_gpu_single(tmp_path, model_dir, model_info):
             num_input = len(fns_input)
             assert num_input > 0
             
-            res = subprocess.run(f'python cli.py test --model-dir {dir_model} --input-dir {dir_input} --output-dir {dir_output} --tile-size {tile_size} --eager-mode --gpu-ids 0',shell=True)
-            assert res.returncode == 0
+            #res = subprocess.run(f'python cli.py test --model-dir {dir_model} --input-dir {dir_input} --output-dir {dir_output} --tile-size {tile_size} --eager-mode --gpu-ids 0',shell=True)
+            returncode = run_and_check_device(f'python cli.py test --model-dir {dir_model} --input-dir {dir_input} --output-dir {dir_output} --tile-size {tile_size} --eager-mode', 
+                                           l_gpu_ids_to_check=[0], check_gpu_with_pid=CHECK_GPU_WITH_PID)
+            assert returncode == 0
             
             fns_output = [f for f in os.listdir(dir_output) if os.path.isfile(os.path.join(dir_output, f)) and f.endswith('png')]
             num_output = len(fns_output)
@@ -266,8 +278,10 @@ def test_cli_inference_eager_gpu_multi(tmp_path, model_dir, model_info):
             num_input = len(fns_input)
             assert num_input > 0
             
-            res = subprocess.run(f'python cli.py test --model-dir {dir_model} --input-dir {dir_input} --output-dir {dir_output} --tile-size {tile_size} --eager-mode --gpu-ids 0 --gpu-ids 1',shell=True)
-            assert res.returncode == 0
+            # res = subprocess.run(f'python cli.py test --model-dir {dir_model} --input-dir {dir_input} --output-dir {dir_output} --tile-size {tile_size} --eager-mode --gpu-ids 0 --gpu-ids 1',shell=True)
+            returncode = run_and_check_device(f'python cli.py test --model-dir {dir_model} --input-dir {dir_input} --output-dir {dir_output} --tile-size {tile_size} --eager-mode', 
+                                           l_gpu_ids_to_check=[0,1], check_gpu_with_pid=CHECK_GPU_WITH_PID)
+            assert returncode == 0
             
             fns_output = [f for f in os.listdir(dir_output) if os.path.isfile(os.path.join(dir_output, f)) and f.endswith('png')]
             num_output = len(fns_output)
@@ -319,8 +333,10 @@ def test_cli_inference_selected_gpu(tmp_path, model_dir, model_info):
             num_input = len(fns_input)
             assert num_input > 0
     
-            res = subprocess.run(f'python cli.py test --model-dir {dir_model} --input-dir {dir_input} --output-dir {dir_output} --tile-size {tile_size} --gpu-ids 1',shell=True)
-            assert res.returncode == 0
+            #res = subprocess.run(f'python cli.py test --model-dir {dir_model} --input-dir {dir_input} --output-dir {dir_output} --tile-size {tile_size} --gpu-ids 1',shell=True)
+            returncode = run_and_check_device(f'python cli.py test --model-dir {dir_model} --input-dir {dir_input} --output-dir {dir_output} --tile-size {tile_size}', 
+                                           l_gpu_ids_to_check=[1], check_gpu_with_pid=CHECK_GPU_WITH_PID)
+            assert returncode == 0
     
             fns_output = [f for f in os.listdir(dir_output) if os.path.isfile(os.path.join(dir_output, f)) and f.endswith('png')]
             num_output = len(fns_output)
@@ -347,8 +363,10 @@ def test_cli_inference_eager_selected_gpu(tmp_path, model_dir, model_info):
             num_input = len(fns_input)
             assert num_input > 0
     
-            res = subprocess.run(f'python cli.py test --model-dir {dir_model} --input-dir {dir_input} --output-dir {dir_output} --tile-size {tile_size} --eager-mode --gpu-ids 1',shell=True)
-            assert res.returncode == 0
+            # res = subprocess.run(f'python cli.py test --model-dir {dir_model} --input-dir {dir_input} --output-dir {dir_output} --tile-size {tile_size} --eager-mode --gpu-ids 1',shell=True)
+            returncode = run_and_check_device(f'python cli.py test --model-dir {dir_model} --input-dir {dir_input} --output-dir {dir_output} --tile-size {tile_size} --eager-mode', 
+                                           l_gpu_ids_to_check=[1], check_gpu_with_pid=CHECK_GPU_WITH_PID)
+            assert returncode == 0
     
             fns_output = [f for f in os.listdir(dir_output) if os.path.isfile(os.path.join(dir_output, f)) and f.endswith('png')]
             num_output = len(fns_output)
