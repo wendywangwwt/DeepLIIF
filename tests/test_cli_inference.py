@@ -8,9 +8,21 @@ from util import *
 available_gpus = torch.cuda.device_count()
 TOLERANCE = 0.0003
 TOLERANCE_SEG = 0.05
-CHECK_GPU_WITH_PID = False # if true, use pynvml to check if pid appears on expected gpu devices (this does not work from within docker); otherwise check gpu memory consumption
+CHECK_GPU_WITH_PID = True # only used in run_subprocess_and_check_device: if true, use pynvml to check if pid appears on expected gpu devices (this does not work from within docker); otherwise check gpu memory consumption
 
 subdir_testpy = 'test_latest/images'
+
+@pytest.fixture(autouse=True)
+def clear_cuda_cache():
+    """
+    Automatically clear CUDA cache after each test.
+    """
+    yield # test code runs
+    
+    # runs after each test
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+        torch.cuda.synchronize()
 
 def match_suffix(l_suffix_cli, model='DeepLIIF'):
     """

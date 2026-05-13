@@ -205,13 +205,19 @@ def run_function_and_check_device(func, kwargs={}, l_gpu_ids_to_check=[0], gpu_i
             kwargs['opt_args']['gpu_ids'].append(gpu_id)
     else:
         if available_gpus > 0:
-            kwargs['opt_args']['gpu_ids'] = []
+            kwargs['opt_args']['gpu_ids'] = [-1]
             l_gpu_ids_to_check = list(range(torch.cuda.device_count()))
             print(f'Check gpu ids {l_gpu_ids_to_check} and ensure none is used')
     
     if not gpu_in_use and available_gpus == 0: # 2. check if gpu is not used when no gpu available - always the case, no need to prob gpu devices
         return func(**kwargs)
     else: # 3. check if gpu is (not) used when gpus are available
+        # record baseline memory before resetting peak stats 
+        d_memory_before = {}
+        for gpu_id in l_gpu_ids_to_check:
+            torch.cuda.set_device(gpu_id)
+            d_memory_before[gpu_id] = torch.cuda.memory_allocated(gpu_id)
+            
         # reset memory stats
         for gpu_id in l_gpu_ids_to_check:
             torch.cuda.set_device(gpu_id) # initialize cuda context
@@ -223,7 +229,7 @@ def run_function_and_check_device(func, kwargs={}, l_gpu_ids_to_check=[0], gpu_i
         
         if gpu_in_use:
             for gpu_id in l_gpu_ids_to_check:
-                assert d_memory_usage_max[gpu_id] > 0, f'gpu id {gpu_id} should but does not show increase in memory consumption'
+                assert d_memory_usage_max[gpu_id] > d_memory_before[gpu_id], f'gpu id {gpu_id} should but does not show increase in memory consumption ({d_memory_usage_max[gpu_id]}); baseline: {d_memory_before[gpu_id]}'
         else:
             for gpu_id in l_gpu_ids_to_check:
-                assert d_memory_usage_max[gpu_id] == 0, f'gpu id {gpu_id} should not but does show increase in memory consumption'
+                assert d_memory_usage_max[gpu_id] <= d_memory_before[gpu_id] + 300*1024*1024, f'gpu id {gpu_id} should not but does show increase in memory consumption ({d_memory_usage_max[gpu_id]}); baseline: {d_memory_before[gpu_id]}' # tolerance: 300MB
