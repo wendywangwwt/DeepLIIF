@@ -57,57 +57,9 @@ def match_suffix(l_suffix_cli, model='DeepLIIF'):
 
     return res_cli, res_testpy
 
-#### 0. test if test.py can run ####
-def test_testpy(tmp_path, model_dir, model_info):
-    torch.cuda.nvtx.range_push("test_testpy")
-    dirs_model = model_dir
-    dirs_input = model_info['dir_input_testpy']
-    for dir_model, dir_input in zip(dirs_model, dirs_input):
-        torch.cuda.nvtx.range_push(f"test_testpy {dir_model}")
-        dir_output = tmp_path
-        
-        fns_input = [f for f in os.listdir(dir_input+'/test') if os.path.isfile(os.path.join(dir_input+'/test', f)) and f.endswith('png')]
-        num_input = len(fns_input)
-        assert num_input > 0
-        
-        res = subprocess.run(f'python test.py --checkpoints_dir {dir_model} --dataroot {dir_input} --results_dir {dir_output}',shell=True)
-        assert res.returncode == 0
-        
-        dir_output_img = dir_output / subdir_testpy
-        fns_output = [f for f in os.listdir(dir_output_img) if os.path.isfile(os.path.join(dir_output_img, f)) and f.endswith('png')]
-        num_output = len(fns_output)
-        assert num_output > 0
-        
-        remove_contents_in_folder(tmp_path)
-        torch.cuda.nvtx.range_pop()
-    torch.cuda.nvtx.range_pop()
 
-#### 1. test if functions can run ####
-def test_cli_inference(tmp_path, model_dir, model_info):
-    torch.cuda.nvtx.range_push("test_cli_inference")
-    dirs_model = model_dir
-    dirs_input = model_info['dir_input_inference']
-    tile_size = model_info['tile_size']
-    for dir_model, dir_input in zip(dirs_model, dirs_input):
-        torch.cuda.nvtx.range_push(f"test_cli_inference {dir_model}")
-        dir_output = tmp_path
-        
-        fns_input = [f for f in os.listdir(dir_input) if os.path.isfile(os.path.join(dir_input, f)) and f.endswith('png')]
-        num_input = len(fns_input)
-        assert num_input > 0
-        
-        res = subprocess.run(f'python cli.py test --model-dir {dir_model} --input-dir {dir_input} --output-dir {dir_output} --tile-size {tile_size}',shell=True)
-        assert res.returncode == 0
-        
-        fns_output = [f for f in os.listdir(dir_output) if os.path.isfile(os.path.join(dir_output, f)) and f.endswith('png')]
-        num_output = len(fns_output)
-        assert num_output > 0
-        
-        remove_contents_in_folder(tmp_path)
-        torch.cuda.nvtx.range_pop()
-    torch.cuda.nvtx.range_pop()
-
-
+#### -1. test cpu-only cases ####
+# run these first in case they are affected by uncleared cuda context
 def test_cli_inference_cpu(tmp_path, model_dir, model_info):
     torch.cuda.nvtx.range_push("test_cli_inference_cpu")
     dirs_model = model_dir
@@ -134,6 +86,109 @@ def test_cli_inference_cpu(tmp_path, model_dir, model_info):
         torch.cuda.nvtx.range_pop()
     torch.cuda.nvtx.range_pop()
 
+
+def test_cli_inference_eager_cpu(tmp_path, model_dir, model_info):
+    torch.cuda.nvtx.range_push("test_cli_inference_eager_cpu")
+    dirs_model = model_dir
+    dirs_input = model_info['dir_input_inference']
+    tile_size = model_info['tile_size']
+    for dir_model, dir_input in zip(dirs_model, dirs_input):
+        torch.cuda.nvtx.range_push(f"test_cli_inference_eager {dir_model}")
+        dir_output = tmp_path
+        
+        fns_input = [f for f in os.listdir(dir_input) if os.path.isfile(os.path.join(dir_input, f)) and f.endswith('png')]
+        num_input = len(fns_input)
+        assert num_input > 0
+        
+        # res = subprocess.run(f'python cli.py test --model-dir {dir_model} --input-dir {dir_input} --output-dir {dir_output} --tile-size {tile_size} --eager-mode --gpu-ids -1',shell=True)
+        returncode = run_subprocess_and_check_device(f'python cli.py test --model-dir {dir_model} --input-dir {dir_input} --output-dir {dir_output} --tile-size {tile_size} --eager-mode --gpu-ids -1', 
+                                       check_gpu_with_pid=CHECK_GPU_WITH_PID, gpu_in_use=False)
+        assert returncode == 0
+        
+        fns_output = [f for f in os.listdir(dir_output) if os.path.isfile(os.path.join(dir_output, f)) and f.endswith('png')]
+        num_output = len(fns_output)
+        assert num_output > 0
+        
+        remove_contents_in_folder(tmp_path)
+        torch.cuda.nvtx.range_pop()
+    torch.cuda.nvtx.range_pop()
+
+
+def test_cli_inference_bare_cpu(tmp_path, model_dir, model_info):
+    torch.cuda.nvtx.range_push("test_cli_inference_bare")
+    dirs_model = model_dir
+    dirs_input = model_info['dir_input_inference']
+    tile_size = model_info['tile_size']
+    for dir_model, dir_input in zip(dirs_model, dirs_input):
+        torch.cuda.nvtx.range_push(f"test_cli_inference_bare {dir_model}")
+        overlap_size = 0
+        
+        fns_input = [f for f in os.listdir(dir_input) if os.path.isfile(os.path.join(dir_input, f)) and f.endswith('png')]
+        num_input = len(fns_input)
+        assert num_input > 0
+        
+        fn_input = fns_input[0] # take only 1 image
+        
+        img = Image.open(os.path.join(dir_input, fn_input))
+        # res = inference(img, tile_size, overlap_size, dir_model, use_torchserve=False, eager_mode=False,
+        #           color_dapi=False, color_marker=False, opt=None)
+        res = run_function_and_check_device(inference, {"img":img, "tile_size":tile_size, "overlap_size":overlap_size, "model_path":dir_model},
+                                            gpu_in_use=False)
+        
+        torch.cuda.nvtx.range_pop()
+    torch.cuda.nvtx.range_pop()
+
+#### 0. test if test.py can run ####
+def test_testpy(tmp_path, model_dir, model_info):
+    torch.cuda.nvtx.range_push("test_testpy")
+    dirs_model = model_dir
+    dirs_input = model_info['dir_input_testpy']
+    for dir_model, dir_input in zip(dirs_model, dirs_input):
+        torch.cuda.nvtx.range_push(f"test_testpy {dir_model}")
+        dir_output = tmp_path
+        
+        fns_input = [f for f in os.listdir(dir_input+'/test') if os.path.isfile(os.path.join(dir_input+'/test', f)) and f.endswith('png')]
+        num_input = len(fns_input)
+        assert num_input > 0
+        
+        res = subprocess.run(f'python test.py --checkpoints_dir {dir_model} --dataroot {dir_input} --results_dir {dir_output}',shell=True)
+        assert res.returncode == 0
+        
+        dir_output_img = dir_output / subdir_testpy
+        fns_output = [f for f in os.listdir(dir_output_img) if os.path.isfile(os.path.join(dir_output_img, f)) and f.endswith('png')]
+        num_output = len(fns_output)
+        assert num_output > 0
+        
+        remove_contents_in_folder(tmp_path)
+        torch.cuda.nvtx.range_pop()
+    torch.cuda.nvtx.range_pop()
+
+
+
+#### 1. test if functions can run ####
+def test_cli_inference(tmp_path, model_dir, model_info):
+    torch.cuda.nvtx.range_push("test_cli_inference")
+    dirs_model = model_dir
+    dirs_input = model_info['dir_input_inference']
+    tile_size = model_info['tile_size']
+    for dir_model, dir_input in zip(dirs_model, dirs_input):
+        torch.cuda.nvtx.range_push(f"test_cli_inference {dir_model}")
+        dir_output = tmp_path
+        
+        fns_input = [f for f in os.listdir(dir_input) if os.path.isfile(os.path.join(dir_input, f)) and f.endswith('png')]
+        num_input = len(fns_input)
+        assert num_input > 0
+        
+        res = subprocess.run(f'python cli.py test --model-dir {dir_model} --input-dir {dir_input} --output-dir {dir_output} --tile-size {tile_size}',shell=True)
+        assert res.returncode == 0
+        
+        fns_output = [f for f in os.listdir(dir_output) if os.path.isfile(os.path.join(dir_output, f)) and f.endswith('png')]
+        num_output = len(fns_output)
+        assert num_output > 0
+        
+        remove_contents_in_folder(tmp_path)
+        torch.cuda.nvtx.range_pop()
+    torch.cuda.nvtx.range_pop()
 
 
 def test_cli_inference_gpu_single(tmp_path, model_dir, model_info):
@@ -209,33 +264,6 @@ def test_cli_inference_eager(tmp_path, model_dir, model_info):
         
         res = subprocess.run(f'python cli.py test --model-dir {dir_model} --input-dir {dir_input} --output-dir {dir_output} --tile-size {tile_size} --eager-mode',shell=True)
         assert res.returncode == 0
-        
-        fns_output = [f for f in os.listdir(dir_output) if os.path.isfile(os.path.join(dir_output, f)) and f.endswith('png')]
-        num_output = len(fns_output)
-        assert num_output > 0
-        
-        remove_contents_in_folder(tmp_path)
-        torch.cuda.nvtx.range_pop()
-    torch.cuda.nvtx.range_pop()
-
-
-def test_cli_inference_eager_cpu(tmp_path, model_dir, model_info):
-    torch.cuda.nvtx.range_push("test_cli_inference_eager_cpu")
-    dirs_model = model_dir
-    dirs_input = model_info['dir_input_inference']
-    tile_size = model_info['tile_size']
-    for dir_model, dir_input in zip(dirs_model, dirs_input):
-        torch.cuda.nvtx.range_push(f"test_cli_inference_eager {dir_model}")
-        dir_output = tmp_path
-        
-        fns_input = [f for f in os.listdir(dir_input) if os.path.isfile(os.path.join(dir_input, f)) and f.endswith('png')]
-        num_input = len(fns_input)
-        assert num_input > 0
-        
-        # res = subprocess.run(f'python cli.py test --model-dir {dir_model} --input-dir {dir_input} --output-dir {dir_output} --tile-size {tile_size} --eager-mode --gpu-ids -1',shell=True)
-        returncode = run_subprocess_and_check_device(f'python cli.py test --model-dir {dir_model} --input-dir {dir_input} --output-dir {dir_output} --tile-size {tile_size} --eager-mode --gpu-ids -1', 
-                                       check_gpu_with_pid=CHECK_GPU_WITH_PID, gpu_in_use=False)
-        assert returncode == 0
         
         fns_output = [f for f in os.listdir(dir_output) if os.path.isfile(os.path.join(dir_output, f)) and f.endswith('png')]
         num_output = len(fns_output)
@@ -325,31 +353,6 @@ def test_cli_inference_bare(tmp_path, model_dir, model_info):
         img = Image.open(os.path.join(dir_input, fn_input))
         res = inference(img, tile_size, overlap_size, dir_model, use_torchserve=False, eager_mode=False,
                   color_dapi=False, color_marker=False, opt=None)
-        
-        torch.cuda.nvtx.range_pop()
-    torch.cuda.nvtx.range_pop()
-
-
-def test_cli_inference_bare_cpu(tmp_path, model_dir, model_info):
-    torch.cuda.nvtx.range_push("test_cli_inference_bare")
-    dirs_model = model_dir
-    dirs_input = model_info['dir_input_inference']
-    tile_size = model_info['tile_size']
-    for dir_model, dir_input in zip(dirs_model, dirs_input):
-        torch.cuda.nvtx.range_push(f"test_cli_inference_bare {dir_model}")
-        overlap_size = 0
-        
-        fns_input = [f for f in os.listdir(dir_input) if os.path.isfile(os.path.join(dir_input, f)) and f.endswith('png')]
-        num_input = len(fns_input)
-        assert num_input > 0
-        
-        fn_input = fns_input[0] # take only 1 image
-        
-        img = Image.open(os.path.join(dir_input, fn_input))
-        # res = inference(img, tile_size, overlap_size, dir_model, use_torchserve=False, eager_mode=False,
-        #           color_dapi=False, color_marker=False, opt=None)
-        res = run_function_and_check_device(inference, {"img":img, "tile_size":tile_size, "overlap_size":overlap_size, "model_path":dir_model},
-                                            gpu_in_use=False)
         
         torch.cuda.nvtx.range_pop()
     torch.cuda.nvtx.range_pop()

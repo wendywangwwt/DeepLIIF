@@ -205,7 +205,7 @@ def run_function_and_check_device(func, kwargs={}, l_gpu_ids_to_check=[0], gpu_i
             kwargs['opt_args']['gpu_ids'].append(gpu_id)
     else:
         if available_gpus > 0:
-            kwargs['opt_args']['gpu_ids'] = [-1]
+            kwargs['opt_args']['gpu_ids'] = []
             l_gpu_ids_to_check = list(range(torch.cuda.device_count()))
             print(f'Check gpu ids {l_gpu_ids_to_check} and ensure none is used')
     
@@ -232,4 +232,4 @@ def run_function_and_check_device(func, kwargs={}, l_gpu_ids_to_check=[0], gpu_i
                 assert d_memory_usage_max[gpu_id] > d_memory_before[gpu_id], f'gpu id {gpu_id} should but does not show increase in memory consumption ({d_memory_usage_max[gpu_id]}); baseline: {d_memory_before[gpu_id]}'
         else:
             for gpu_id in l_gpu_ids_to_check:
-                assert d_memory_usage_max[gpu_id] <= d_memory_before[gpu_id] + 300*1024*1024, f'gpu id {gpu_id} should not but does show increase in memory consumption ({d_memory_usage_max[gpu_id]}); baseline: {d_memory_before[gpu_id]}' # tolerance: 300MB
+                assert d_memory_usage_max[gpu_id] <= d_memory_before[gpu_id], f'gpu id {gpu_id} should not but does show increase in memory consumption ({d_memory_usage_max[gpu_id]}); baseline: {d_memory_before[gpu_id]}' # tolerance: 300MB if needed
