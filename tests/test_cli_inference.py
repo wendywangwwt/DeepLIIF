@@ -110,7 +110,7 @@ def test_cli_inference_cpu(tmp_path, model_dir, model_info):
         assert num_input > 0
         
         #res = subprocess.run(f'python cli.py test --model-dir {dir_model} --input-dir {dir_input} --output-dir {dir_output} --tile-size {tile_size} --gpu-ids -1',shell=True)
-        returncode = run_and_check_device(f'python cli.py test --model-dir {dir_model} --input-dir {dir_input} --output-dir {dir_output} --tile-size {tile_size} --gpu-ids -1', 
+        returncode = run_subprocess_and_check_device(f'python cli.py test --model-dir {dir_model} --input-dir {dir_input} --output-dir {dir_output} --tile-size {tile_size} --gpu-ids -1', 
                                        check_gpu_with_pid=CHECK_GPU_WITH_PID, gpu_in_use=False)
         assert returncode == 0
         
@@ -138,7 +138,7 @@ def test_cli_inference_gpu_single(tmp_path, model_dir, model_info):
             num_input = len(fns_input)
             assert num_input > 0
             # res = subprocess.run(f'python cli.py test --model-dir {dir_model} --input-dir {dir_input} --output-dir {dir_output} --tile-size {tile_size} --gpu-ids 0',shell=True)            
-            returncode = run_and_check_device(f'python cli.py test --model-dir {dir_model} --input-dir {dir_input} --output-dir {dir_output} --tile-size {tile_size}', 
+            returncode = run_subprocess_and_check_device(f'python cli.py test --model-dir {dir_model} --input-dir {dir_input} --output-dir {dir_output} --tile-size {tile_size}', 
                                            l_gpu_ids_to_check=[0], check_gpu_with_pid=CHECK_GPU_WITH_PID)
             assert returncode == 0
             fns_output = [f for f in os.listdir(dir_output) if os.path.isfile(os.path.join(dir_output, f)) and f.endswith('png')]
@@ -167,7 +167,7 @@ def test_cli_inference_gpu_multi(tmp_path, model_dir, model_info):
             assert num_input > 0
             
             #res = subprocess.run(f'python cli.py test --model-dir {dir_model} --input-dir {dir_input} --output-dir {dir_output} --tile-size {tile_size} --gpu-ids 1 --gpu-ids 0',shell=True)
-            returncode = run_and_check_device(f'python cli.py test --model-dir {dir_model} --input-dir {dir_input} --output-dir {dir_output} --tile-size {tile_size}', 
+            returncode = run_subprocess_and_check_device(f'python cli.py test --model-dir {dir_model} --input-dir {dir_input} --output-dir {dir_output} --tile-size {tile_size}', 
                                            l_gpu_ids_to_check=[0,1], check_gpu_with_pid=CHECK_GPU_WITH_PID)
             assert returncode == 0
             
@@ -221,7 +221,7 @@ def test_cli_inference_eager_cpu(tmp_path, model_dir, model_info):
         assert num_input > 0
         
         # res = subprocess.run(f'python cli.py test --model-dir {dir_model} --input-dir {dir_input} --output-dir {dir_output} --tile-size {tile_size} --eager-mode --gpu-ids -1',shell=True)
-        returncode = run_and_check_device(f'python cli.py test --model-dir {dir_model} --input-dir {dir_input} --output-dir {dir_output} --tile-size {tile_size} --eager-mode --gpu-ids -1', 
+        returncode = run_subprocess_and_check_device(f'python cli.py test --model-dir {dir_model} --input-dir {dir_input} --output-dir {dir_output} --tile-size {tile_size} --eager-mode --gpu-ids -1', 
                                        check_gpu_with_pid=CHECK_GPU_WITH_PID, gpu_in_use=False)
         assert returncode == 0
         
@@ -249,7 +249,7 @@ def test_cli_inference_eager_gpu_single(tmp_path, model_dir, model_info):
             assert num_input > 0
             
             #res = subprocess.run(f'python cli.py test --model-dir {dir_model} --input-dir {dir_input} --output-dir {dir_output} --tile-size {tile_size} --eager-mode --gpu-ids 0',shell=True)
-            returncode = run_and_check_device(f'python cli.py test --model-dir {dir_model} --input-dir {dir_input} --output-dir {dir_output} --tile-size {tile_size} --eager-mode', 
+            returncode = run_subprocess_and_check_device(f'python cli.py test --model-dir {dir_model} --input-dir {dir_input} --output-dir {dir_output} --tile-size {tile_size} --eager-mode', 
                                            l_gpu_ids_to_check=[0], check_gpu_with_pid=CHECK_GPU_WITH_PID)
             assert returncode == 0
             
@@ -279,7 +279,7 @@ def test_cli_inference_eager_gpu_multi(tmp_path, model_dir, model_info):
             assert num_input > 0
             
             # res = subprocess.run(f'python cli.py test --model-dir {dir_model} --input-dir {dir_input} --output-dir {dir_output} --tile-size {tile_size} --eager-mode --gpu-ids 0 --gpu-ids 1',shell=True)
-            returncode = run_and_check_device(f'python cli.py test --model-dir {dir_model} --input-dir {dir_input} --output-dir {dir_output} --tile-size {tile_size} --eager-mode', 
+            returncode = run_subprocess_and_check_device(f'python cli.py test --model-dir {dir_model} --input-dir {dir_input} --output-dir {dir_output} --tile-size {tile_size} --eager-mode', 
                                            l_gpu_ids_to_check=[0,1], check_gpu_with_pid=CHECK_GPU_WITH_PID)
             assert returncode == 0
             
@@ -318,7 +318,115 @@ def test_cli_inference_bare(tmp_path, model_dir, model_info):
     torch.cuda.nvtx.range_pop()
 
 
+def test_cli_inference_bare_cpu(tmp_path, model_dir, model_info):
+    torch.cuda.nvtx.range_push("test_cli_inference_bare")
+    dirs_model = model_dir
+    dirs_input = model_info['dir_input_inference']
+    tile_size = model_info['tile_size']
+    for dir_model, dir_input in zip(dirs_model, dirs_input):
+        torch.cuda.nvtx.range_push(f"test_cli_inference_bare {dir_model}")
+        overlap_size = 0
+        
+        fns_input = [f for f in os.listdir(dir_input) if os.path.isfile(os.path.join(dir_input, f)) and f.endswith('png')]
+        num_input = len(fns_input)
+        assert num_input > 0
+        
+        fn_input = fns_input[0] # take only 1 image
+        
+        img = Image.open(os.path.join(dir_input, fn_input))
+        # res = inference(img, tile_size, overlap_size, dir_model, use_torchserve=False, eager_mode=False,
+        #           color_dapi=False, color_marker=False, opt=None)
+        res = run_function_and_check_device(inference, {"img":img, "tile_size":tile_size, "overlap_size":overlap_size, "model_path":dir_model},
+                                            gpu_in_use=False)
+        
+        torch.cuda.nvtx.range_pop()
+    torch.cuda.nvtx.range_pop()
+
+
+def test_cli_inference_bare_gpu_single(tmp_path, model_dir, model_info):
+    if available_gpus > 0:
+        torch.cuda.nvtx.range_push("test_cli_inference_bare")
+        dirs_model = model_dir
+        dirs_input = model_info['dir_input_inference']
+        tile_size = model_info['tile_size']
+        for dir_model, dir_input in zip(dirs_model, dirs_input):
+            torch.cuda.nvtx.range_push(f"test_cli_inference_bare {dir_model}")
+            overlap_size = 0
+            
+            fns_input = [f for f in os.listdir(dir_input) if os.path.isfile(os.path.join(dir_input, f)) and f.endswith('png')]
+            num_input = len(fns_input)
+            assert num_input > 0
+            
+            fn_input = fns_input[0] # take only 1 image
+            
+            img = Image.open(os.path.join(dir_input, fn_input))
+            # res = inference(img, tile_size, overlap_size, dir_model, use_torchserve=False, eager_mode=False,
+            #           color_dapi=False, color_marker=False, opt=None)
+            res = run_function_and_check_device(inference, {"img":img, "tile_size":tile_size, "overlap_size":overlap_size, "model_path":dir_model},
+                                                l_gpu_ids_to_check=[0])
+            
+            torch.cuda.nvtx.range_pop()
+        torch.cuda.nvtx.range_pop()
+    else:
+        pytest.skip(f'Detected {available_gpus} (< 1) available GPUs. Skip.')
+
+
+def test_cli_inference_bare_gpu_multi(tmp_path, model_dir, model_info):
+    if available_gpus > 1:
+        torch.cuda.nvtx.range_push("test_cli_inference_bare")
+        dirs_model = model_dir
+        dirs_input = model_info['dir_input_inference']
+        tile_size = model_info['tile_size']
+        for dir_model, dir_input in zip(dirs_model, dirs_input):
+            torch.cuda.nvtx.range_push(f"test_cli_inference_bare {dir_model}")
+            overlap_size = 0
+            
+            fns_input = [f for f in os.listdir(dir_input) if os.path.isfile(os.path.join(dir_input, f)) and f.endswith('png')]
+            num_input = len(fns_input)
+            assert num_input > 0
+            
+            fn_input = fns_input[0] # take only 1 image
+            
+            img = Image.open(os.path.join(dir_input, fn_input))
+            # res = inference(img, tile_size, overlap_size, dir_model, use_torchserve=False, eager_mode=False,
+            #           color_dapi=False, color_marker=False, opt=None)
+            res = run_function_and_check_device(inference, {"img":img, "tile_size":tile_size, "overlap_size":overlap_size, "model_path":dir_model},
+                                                l_gpu_ids_to_check=[0,1])
+            
+            torch.cuda.nvtx.range_pop()
+        torch.cuda.nvtx.range_pop()
+    else:
+        pytest.skip(f'Detected {available_gpus} (< 2) available GPUs. Skip.')
+
 #### 2. test inference with selected gpus
+def test_cli_inference_bare_selected_gpu(tmp_path, model_dir, model_info):
+    if available_gpus > 1:
+        torch.cuda.nvtx.range_push("test_cli_inference_bare")
+        dirs_model = model_dir
+        dirs_input = model_info['dir_input_inference']
+        tile_size = model_info['tile_size']
+        for dir_model, dir_input in zip(dirs_model, dirs_input):
+            torch.cuda.nvtx.range_push(f"test_cli_inference_bare {dir_model}")
+            overlap_size = 0
+            
+            fns_input = [f for f in os.listdir(dir_input) if os.path.isfile(os.path.join(dir_input, f)) and f.endswith('png')]
+            num_input = len(fns_input)
+            assert num_input > 0
+            
+            fn_input = fns_input[0] # take only 1 image
+            
+            img = Image.open(os.path.join(dir_input, fn_input))
+            # res = inference(img, tile_size, overlap_size, dir_model, use_torchserve=False, eager_mode=False,
+            #           color_dapi=False, color_marker=False, opt=None)
+            res = run_function_and_check_device(inference, {"img":img, "tile_size":tile_size, "overlap_size":overlap_size, "model_path":dir_model},
+                                                l_gpu_ids_to_check=[1])
+            
+            torch.cuda.nvtx.range_pop()
+        torch.cuda.nvtx.range_pop()
+    else:
+        pytest.skip(f'Detected {available_gpus} (< 2) available GPUs. Skip.')
+
+    
 def test_cli_inference_selected_gpu(tmp_path, model_dir, model_info):
     if available_gpus > 1:
         torch.cuda.nvtx.range_push("test_cli_inference_selected_gpu")
@@ -334,7 +442,7 @@ def test_cli_inference_selected_gpu(tmp_path, model_dir, model_info):
             assert num_input > 0
     
             #res = subprocess.run(f'python cli.py test --model-dir {dir_model} --input-dir {dir_input} --output-dir {dir_output} --tile-size {tile_size} --gpu-ids 1',shell=True)
-            returncode = run_and_check_device(f'python cli.py test --model-dir {dir_model} --input-dir {dir_input} --output-dir {dir_output} --tile-size {tile_size}', 
+            returncode = run_subprocess_and_check_device(f'python cli.py test --model-dir {dir_model} --input-dir {dir_input} --output-dir {dir_output} --tile-size {tile_size}', 
                                            l_gpu_ids_to_check=[1], check_gpu_with_pid=CHECK_GPU_WITH_PID)
             assert returncode == 0
     
@@ -364,7 +472,7 @@ def test_cli_inference_eager_selected_gpu(tmp_path, model_dir, model_info):
             assert num_input > 0
     
             # res = subprocess.run(f'python cli.py test --model-dir {dir_model} --input-dir {dir_input} --output-dir {dir_output} --tile-size {tile_size} --eager-mode --gpu-ids 1',shell=True)
-            returncode = run_and_check_device(f'python cli.py test --model-dir {dir_model} --input-dir {dir_input} --output-dir {dir_output} --tile-size {tile_size} --eager-mode', 
+            returncode = run_subprocess_and_check_device(f'python cli.py test --model-dir {dir_model} --input-dir {dir_input} --output-dir {dir_output} --tile-size {tile_size} --eager-mode', 
                                            l_gpu_ids_to_check=[1], check_gpu_with_pid=CHECK_GPU_WITH_PID)
             assert returncode == 0
     

@@ -101,7 +101,7 @@ def get_gpus_for_pid(pid):
     return l_gpu_ids
     
 
-def run_and_check_device(cmd, l_gpu_ids_to_check=[0], check_gpu_with_pid=True, gpu_in_use=True):
+def run_subprocess_and_check_device(cmd, l_gpu_ids_to_check=[0], check_gpu_with_pid=True, gpu_in_use=True):
     """
     Run a subprocess command within a test case and check gpu usage.
     We first check a set of 2x2 conditions: 
@@ -172,3 +172,58 @@ def run_and_check_device(cmd, l_gpu_ids_to_check=[0], check_gpu_with_pid=True, g
             pass
         
         return process.wait()
+
+
+def run_function_and_check_device(func, kwargs={}, l_gpu_ids_to_check=[0], gpu_in_use=True):
+    """
+    Run a function and check gpu usage using torch's internal tracker.
+    We first check a set of 2x2 conditions: 
+      - whether there is gpu device (available_gpus > 0)
+      - whether gpu usage is expected (gpu_in_use = True)
+    Then 2 conditions:
+      - whether gpu usage is expected (gpu_in_use = True)
+    
+    func: the basic function
+    kwargs: a list of arg name and value passed to func
+    l_gpu_ids_to_check: check the listed gpu ids and see whether they are used; if flag
+        gpu_in_use is True, appends {"gpu_ids":l_gpu_ids_to_check} to func's opt_args; otherwise
+        appends {"gpu_ids":[]}
+    gpu_in_use: if True, check whether the selected gpus are in use; if False, check whether they
+        are NOT in use (to test cpu computation)
+    """
+    available_gpus = torch.cuda.device_count()
+    
+    if 'opt_args' not in kwargs.keys():
+        kwargs['opt_args'] = {}
+    
+    if gpu_in_use:
+        assert available_gpus > 0, f'no available gpu to run test case {func.__name__}' # 1. check if gpu is used when no gpu available - fail
+        l_gpu_ids_all = list(range(available_gpus))
+        kwargs['opt_args']['gpu_ids'] = []
+        for gpu_id in l_gpu_ids_to_check:
+            assert gpu_id in l_gpu_ids_all, f'gpu id {gpu_id} is not available (available gpus {l_gpu_ids_all})'
+            kwargs['opt_args']['gpu_ids'].append(gpu_id)
+    else:
+        if available_gpus > 0:
+            kwargs['opt_args']['gpu_ids'] = []
+            l_gpu_ids_to_check = list(range(torch.cuda.device_count()))
+            print(f'Check gpu ids {l_gpu_ids_to_check} and ensure none is used')
+    
+    if not gpu_in_use and available_gpus == 0: # 2. check if gpu is not used when no gpu available - always the case, no need to prob gpu devices
+        return func(**kwargs)
+    else: # 3. check if gpu is (not) used when gpus are available
+        # reset memory stats
+        for gpu_id in l_gpu_ids_to_check:
+            torch.cuda.set_device(gpu_id) # initialize cuda context
+            torch.cuda.reset_peak_memory_stats(gpu_id) # # collect memory stats through cuda
+        
+        res = func(**kwargs)
+        
+        d_memory_usage_max = {gpu_id: torch.cuda.max_memory_allocated(gpu_id) for gpu_id in l_gpu_ids_to_check}
+        
+        if gpu_in_use:
+            for gpu_id in l_gpu_ids_to_check:
+                assert d_memory_usage_max[gpu_id] > 0, f'gpu id {gpu_id} should but does not show increase in memory consumption'
+        else:
+            for gpu_id in l_gpu_ids_to_check:
+                assert d_memory_usage_max[gpu_id] == 0, f'gpu id {gpu_id} should not but does show increase in memory consumption'
