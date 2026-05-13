@@ -206,7 +206,7 @@ def init_nets(model_dir, eager_mode=False, opt=None, phase='test'):
         chunks = [itertools.chain.from_iterable(c) for c in chunker(net_groups, number_of_gpus)]
         # chunks = chunks[1:]
         #l_devices = [{n: torch.device(f'cuda:{mapping_gpu_ids[i]}') for i, g in enumerate(chunks) for n in g} for chunks in l_chunks]
-        devices = {n: torch.device(f'cuda:{i}') for i, g in enumerate(chunks) for n in g}
+        devices = {n: torch.device(f'cuda:{opt.gpu_ids[i]}') for i, g in enumerate(chunks) for n in g}
     else:
         devices = {n: torch.device('cpu') for n in itertools.chain.from_iterable(net_groups)}
 
