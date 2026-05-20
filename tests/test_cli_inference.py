@@ -4,6 +4,8 @@ import os
 import torch
 import time
 from util import *
+from deepliif.models import init_nets
+import gc
 
 available_gpus = torch.cuda.device_count()
 TOLERANCE = 0.0003
@@ -135,8 +137,12 @@ def test_cli_inference_bare_cpu(tmp_path, model_dir, model_info):
         res = run_function_and_check_device(inference, {"img":img, "tile_size":tile_size, "overlap_size":overlap_size, "model_path":dir_model},
                                             gpu_in_use=False)
         
+        del img
+        del res
+        gc.collect()
         torch.cuda.nvtx.range_pop()
     torch.cuda.nvtx.range_pop()
+    
 
 #### 0. test if test.py can run ####
 def test_testpy(tmp_path, model_dir, model_info):
@@ -354,6 +360,12 @@ def test_cli_inference_bare(tmp_path, model_dir, model_info):
         res = inference(img, tile_size, overlap_size, dir_model, use_torchserve=False, eager_mode=False,
                   color_dapi=False, color_marker=False, opt=None)
         
+        del img
+        del res
+        init_nets.cache_clear()
+        gc.collect()
+        torch.cuda.empty_cache()
+        torch.cuda.synchronize()       
         torch.cuda.nvtx.range_pop()
     torch.cuda.nvtx.range_pop()
 
@@ -379,7 +391,12 @@ def test_cli_inference_bare_gpu_single(tmp_path, model_dir, model_info):
             #           color_dapi=False, color_marker=False, opt=None)
             res = run_function_and_check_device(inference, {"img":img, "tile_size":tile_size, "overlap_size":overlap_size, "model_path":dir_model},
                                                 l_gpu_ids_to_check=[0])
-            
+            del img
+            del res
+            init_nets.cache_clear()
+            gc.collect()
+            torch.cuda.empty_cache()
+            torch.cuda.synchronize()
             torch.cuda.nvtx.range_pop()
         torch.cuda.nvtx.range_pop()
     else:
@@ -407,7 +424,12 @@ def test_cli_inference_bare_gpu_multi(tmp_path, model_dir, model_info):
             #           color_dapi=False, color_marker=False, opt=None)
             res = run_function_and_check_device(inference, {"img":img, "tile_size":tile_size, "overlap_size":overlap_size, "model_path":dir_model},
                                                 l_gpu_ids_to_check=[0,1])
-            
+            del img
+            del res
+            init_nets.cache_clear()
+            gc.collect()
+            torch.cuda.empty_cache()
+            torch.cuda.synchronize()
             torch.cuda.nvtx.range_pop()
         torch.cuda.nvtx.range_pop()
     else:
@@ -435,7 +457,12 @@ def test_cli_inference_bare_selected_gpu(tmp_path, model_dir, model_info):
             #           color_dapi=False, color_marker=False, opt=None)
             res = run_function_and_check_device(inference, {"img":img, "tile_size":tile_size, "overlap_size":overlap_size, "model_path":dir_model},
                                                 l_gpu_ids_to_check=[1])
-            
+            del img
+            del res
+            init_nets.cache_clear()
+            gc.collect()
+            torch.cuda.empty_cache()
+            torch.cuda.synchronize()
             torch.cuda.nvtx.range_pop()
         torch.cuda.nvtx.range_pop()
     else:
