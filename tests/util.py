@@ -158,7 +158,7 @@ def run_subprocess_and_check_device(cmd, l_gpu_ids_to_check=[0], check_gpu_with_
                 for gpu_id, usage in check_gpus_memory(l_gpu_ids_to_check).items():
                     if d_memory_usage_max[gpu_id] < usage:
                         d_memory_usage_max[gpu_id] = usage
-            time.sleep(5)
+            time.sleep(1)
         
         if check_gpu_with_pid and gpu_in_use:
             assert sorted(l_gpu_ids_to_check) == sorted(l_gpu_ids_effective), f'detected gpus used by the process ({l_gpu_ids_effective}) is different from the expected ones ({l_gpu_ids_to_check})'

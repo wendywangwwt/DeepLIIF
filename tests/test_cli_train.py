@@ -13,10 +13,27 @@ import subprocess
 import os
 import torch
 import pytest
+from util import run_subprocess_and_check_device
+import time
 
 available_gpus = torch.cuda.device_count()
 CMD_BASIC = 'python cli.py train --model {model} --dataroot {dataroot} --name test_local --modalities-no {modalities_no} --seg-gen {seg_gen} --batch-size 1 --num-threads 0 --checkpoints-dir {dir_save} --remote True --n-epochs 1 --n-epochs-decay 1'
 CMD_KD = ' --model-dir-teacher {model_dir_teacher}'
+CHECK_GPU_WITH_PID = True # only used in run_subprocess_and_check_device: if true, use pynvml to check if pid appears on expected gpu devices (this does not work from within docker); otherwise check gpu memory consumption
+
+@pytest.fixture(autouse=True)
+def clear_cuda_cache():
+    """
+    Automatically clear CUDA cache after each test.
+    """
+    yield # test code runs
+    
+    # runs after each test
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+        torch.cuda.synchronize()
+        time.sleep(2)
+
 #----------------------
 #---- cpu-based -------
 #----------------------
@@ -36,8 +53,9 @@ def test_cli_train(tmp_path, model_info, foldername_suffix):
                                seg_gen=model_info["seg_gen"][i], dir_save=dir_save)
         if model_info["model"] in ['DeepLIIFKD']:
             cmd += CMD_KD.format(model_dir_teacher=model_info['model_dir_teacher'][i])
-        res = subprocess.run(cmd,shell=True)
-        assert res.returncode == 0
+        #res = subprocess.run(cmd,shell=True)
+        returncode = run_subprocess_and_check_device(cmd, check_gpu_with_pid=CHECK_GPU_WITH_PID, gpu_in_use=False)
+        assert returncode == 0
         torch.cuda.nvtx.range_pop()
     torch.cuda.nvtx.range_pop()
 
@@ -58,15 +76,16 @@ def test_cli_train_single_gpu(tmp_path, model_info, foldername_suffix):
             num_input = len(fns_input)
             assert num_input > 0
     
-            test_param = '--gpu-ids 0'
+            #test_param = '--gpu-ids 0'
             cmd = CMD_BASIC.format(model=model_info["model"], dataroot=dirs_input[i], 
                                    modalities_no=model_info["modalities_no"][i], 
                                    seg_gen=model_info["seg_gen"][i], dir_save=dir_save)
-            cmd += f' {test_param}'
+            #cmd += f' {test_param}'
             if model_info["model"] in ['DeepLIIFKD']:
                 cmd += CMD_KD.format(model_dir_teacher=model_info['model_dir_teacher'][i])
-            res = subprocess.run(cmd,shell=True)
-            assert res.returncode == 0
+            #res = subprocess.run(cmd,shell=True)
+            returncode = run_subprocess_and_check_device(cmd, l_gpu_ids_to_check=[0], check_gpu_with_pid=CHECK_GPU_WITH_PID)
+            assert returncode == 0
             torch.cuda.nvtx.range_pop()
         torch.cuda.nvtx.range_pop()
     else:
@@ -85,15 +104,16 @@ def test_cli_train_single_gpu_optimizer(tmp_path, model_info, foldername_suffix)
             num_input = len(fns_input)
             assert num_input > 0
     
-            test_param = '--gpu-ids 0 --optimizer sgd'
+            test_param = '--optimizer sgd'
             cmd = CMD_BASIC.format(model=model_info["model"], dataroot=dirs_input[i], 
                                    modalities_no=model_info["modalities_no"][i], 
                                    seg_gen=model_info["seg_gen"][i], dir_save=dir_save)
             cmd += f' {test_param}'
             if model_info["model"] in ['DeepLIIFKD']:
                 cmd += CMD_KD.format(model_dir_teacher=model_info['model_dir_teacher'][i])
-            res = subprocess.run(cmd,shell=True)
-            assert res.returncode == 0
+            #res = subprocess.run(cmd,shell=True)
+            returncode = run_subprocess_and_check_device(cmd, l_gpu_ids_to_check=[0], check_gpu_with_pid=CHECK_GPU_WITH_PID)
+            assert returncode == 0
             torch.cuda.nvtx.range_pop()
         torch.cuda.nvtx.range_pop()
     else:
@@ -112,25 +132,27 @@ def test_cli_train_single_gpu_netg(tmp_path, model_info, foldername_suffix):
             num_input = len(fns_input)
             assert num_input > 0
     
-            test_param = '--gpu-ids 0 --net-g unet_512'
+            test_param = '--net-g unet_512'
             cmd = CMD_BASIC.format(model=model_info["model"], dataroot=dirs_input[i], 
                                    modalities_no=model_info["modalities_no"][i], 
                                    seg_gen=model_info["seg_gen"][i], dir_save=dir_save)
             cmd += f' {test_param}'
             if model_info["model"] in ['DeepLIIFKD']:
                 cmd += CMD_KD.format(model_dir_teacher=model_info['model_dir_teacher'][i])
-            res = subprocess.run(cmd,shell=True)
-            assert res.returncode == 0
+            #res = subprocess.run(cmd,shell=True)
+            returncode = run_subprocess_and_check_device(cmd, l_gpu_ids_to_check=[0], check_gpu_with_pid=CHECK_GPU_WITH_PID)
+            assert returncode == 0
             
-            test_param = '--gpu-ids 0 --net-g unet_512_attention'
+            test_param = '--net-g unet_512_attention'
             cmd = CMD_BASIC.format(model=model_info["model"], dataroot=dirs_input[i], 
                                    modalities_no=model_info["modalities_no"][i], 
                                    seg_gen=model_info["seg_gen"][i], dir_save=dir_save)
             cmd += f' {test_param}'
             if model_info["model"] in ['DeepLIIFKD']:
                 cmd += CMD_KD.format(model_dir_teacher=model_info['model_dir_teacher'][i])
-            res = subprocess.run(cmd,shell=True)
-            assert res.returncode == 0
+            #res = subprocess.run(cmd,shell=True)
+            returncode = run_subprocess_and_check_device(cmd, l_gpu_ids_to_check=[0], check_gpu_with_pid=CHECK_GPU_WITH_PID)
+            assert returncode == 0
             torch.cuda.nvtx.range_pop()
         torch.cuda.nvtx.range_pop()
     else:
@@ -149,25 +171,27 @@ def test_cli_train_single_gpu_netgs(tmp_path, model_info, foldername_suffix):
             num_input = len(fns_input)
             assert num_input > 0
     
-            test_param = '--gpu-ids 0 --net-gs unet_512'
+            test_param = '--net-gs unet_512'
             cmd = CMD_BASIC.format(model=model_info["model"], dataroot=dirs_input[i], 
                                    modalities_no=model_info["modalities_no"][i], 
                                    seg_gen=model_info["seg_gen"][i], dir_save=dir_save)
             cmd += f' {test_param}'
             if model_info["model"] in ['DeepLIIFKD']:
                 cmd += CMD_KD.format(model_dir_teacher=model_info['model_dir_teacher'][i])
-            res = subprocess.run(cmd,shell=True)
-            assert res.returncode == 0
+            #res = subprocess.run(cmd,shell=True)
+            returncode = run_subprocess_and_check_device(cmd, l_gpu_ids_to_check=[0], check_gpu_with_pid=CHECK_GPU_WITH_PID)
+            assert returncode == 0
             
-            test_param = '--gpu-ids 0 --net-gs unet_512_attention'
+            test_param = '--net-gs unet_512_attention'
             cmd = CMD_BASIC.format(model=model_info["model"], dataroot=dirs_input[i], 
                                    modalities_no=model_info["modalities_no"][i], 
                                    seg_gen=model_info["seg_gen"][i], dir_save=dir_save)
             cmd += f' {test_param}'
             if model_info["model"] in ['DeepLIIFKD']:
                 cmd += CMD_KD.format(model_dir_teacher=model_info['model_dir_teacher'][i])
-            res = subprocess.run(cmd,shell=True)
-            assert res.returncode == 0
+            #res = subprocess.run(cmd,shell=True)
+            returncode = run_subprocess_and_check_device(cmd, l_gpu_ids_to_check=[0], check_gpu_with_pid=CHECK_GPU_WITH_PID)
+            assert returncode == 0
             torch.cuda.nvtx.range_pop()
         torch.cuda.nvtx.range_pop()
     else:
@@ -187,15 +211,16 @@ def test_cli_train_single_gpu_withval(tmp_path, model_info, foldername_suffix):
                 num_input = len(fns_input)
                 assert num_input > 0
         
-                test_param = '--gpu-ids 0 --with-val'
+                test_param = '--with-val'
                 cmd = CMD_BASIC.format(model=model_info["model"], dataroot=dirs_input[i], 
                                        modalities_no=model_info["modalities_no"][i], 
                                        seg_gen=model_info["seg_gen"][i], dir_save=dir_save)
                 cmd += f' {test_param}'
                 if model_info["model"] in ['DeepLIIFKD']:
                     cmd += CMD_KD.format(model_dir_teacher=model_info['model_dir_teacher'][i])
-                res = subprocess.run(cmd,shell=True)
-                assert res.returncode == 0
+                #res = subprocess.run(cmd,shell=True)
+                returncode = run_subprocess_and_check_device(cmd, l_gpu_ids_to_check=[0], check_gpu_with_pid=CHECK_GPU_WITH_PID)
+                assert returncode == 0
                 torch.cuda.nvtx.range_pop()
         torch.cuda.nvtx.range_pop()
     else:
@@ -216,15 +241,17 @@ def test_cli_train_multi_gpu_dp(tmp_path, model_info, foldername_suffix):
             num_input = len(fns_input)
             assert num_input > 0
             
-            test_param = '--gpu-ids 0 --gpu-ids 1'
+            #test_param = '--gpu-ids 0 --gpu-ids 1'
+            test_param = '--batch-size 2'
             cmd = CMD_BASIC.format(model=model_info["model"], dataroot=dirs_input[i], 
                                    modalities_no=model_info["modalities_no"][i], 
                                    seg_gen=model_info["seg_gen"][i], dir_save=dir_save)
             cmd += f' {test_param}'
             if model_info["model"] in ['DeepLIIFKD']:
                 cmd += CMD_KD.format(model_dir_teacher=model_info['model_dir_teacher'][i])
-            res = subprocess.run(cmd,shell=True)
-            assert res.returncode == 0
+            #res = subprocess.run(cmd,shell=True)
+            returncode = run_subprocess_and_check_device(cmd, l_gpu_ids_to_check=[0,1], check_gpu_with_pid=CHECK_GPU_WITH_PID)
+            assert returncode == 0
             torch.cuda.nvtx.range_pop()
         torch.cuda.nvtx.range_pop()
     else:
