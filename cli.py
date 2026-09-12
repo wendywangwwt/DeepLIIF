@@ -19,6 +19,7 @@ from deepliif.util.checks import check_weights
 from deepliif.options import Options, print_options
 
 import torch.distributed as dist
+import torch.nn as nn
 
 from packaging import version
 import subprocess
@@ -403,6 +404,7 @@ def train(dataroot, name, gpu_ids, checkpoints_dir, input_nc, output_nc, ngf, nd
     model = create_model(opt)
     # regular setup: load and print networks; create schedulers
     model.setup(opt)
+
 
     # create a visualizer that display/save images and plots
     visualizer = Visualizer(opt)
@@ -831,6 +833,276 @@ def serialize(model_dir, output_dir, device, epoch, verbose):
          
 
 @cli.command()
+@click.option('--model-dir', default='./model-server/DeepLIIF_Latest_Model', help='reads models from here')
+@click.option('--output-dir', help='saves results here.')
+@click.option('--data-dir', help='path to calibration dataset (also used to qat post training); if not set, use the training data path')
+#@click.option('--tile-size', type=int, default=None, help='tile size')
+@click.option('--epoch', default='latest', type=str, help='epoch to load and serialize')
+@click.option('--qat', is_flag=True, help='use quantization-aware training; current training runs on GPU 0')
+@click.option('--gpu-ids', type=int, multiple=True, help='only for qat: gpu-ids 0 gpu-ids 1 or gpu-ids -1 for CPU')
+@click.option('--fn-example', default=None, type=str, help='the real image example used in openvino.convert_model() for better results; needs to be available under --data-dir; if not, use the first one')
+@click.option('--opt-args', default="{}", type=str, help='dictionary-format opt key-value pairs to overwrite the loaded values from train_opt.txt, for example --opt-args {"display_server":"https://my-server", "display_port":8097, "display_env":"openvino_int8qat"}')
+@click.option('--verbose', default=0, type=int,help='saves results here.')
+def quantize(model_dir, output_dir, data_dir, epoch, qat, gpu_ids, fn_example, opt_args, verbose):
+    """
+    Quantize DeepLIIF models using Openvino.
+    Mostly created for quantization-aware training: apply an additional few
+    epochs of training to restore the degraded performance.
+    """
+    output_dir = output_dir or model_dir
+    ensure_exists(output_dir)
+    
+    # copy train_opt.txt to the target location
+    import shutil
+    if model_dir != output_dir:
+        shutil.copy(f'{model_dir}/train_opt.txt',f'{output_dir}/train_opt.txt')
+    
+    opt_args = eval(opt_args)
+    print("overwriting opt key-value pairs:", opt_args)
+    
+    # control the randomnes in data sampling (calibration set for int8)
+    import random
+    random.seed(42)
+    np.random.seed(42)
+    torch.manual_seed(42)
+    
+    import nncf
+    import openvino as ov
+    from deepliif.util.openvino import disable_inplace, transform_fn
+    import copy
+    
+    # use a real image for openvino conversion to properly trace the model
+    # works better than a dummy one
+    if fn_example is None:
+        fns = sorted([fn for fn in os.listdir(data_dir) if fn.endswith(('.png'))])
+        fn_example = fns[0]
+    print('Real data image used for tracing and comparison:',fn_example)
+    
+    if not qat:
+        opt = Options(path_file=os.path.join(model_dir,'train_opt.txt'), mode='test')
+        opt.use_dp = True
+        opt.gpu_ids = []
+        opt.num_threads = 0
+        for k,v in opt_args.items():
+            setattr(opt,k,v)
+        
+        # create a model given model and other options
+        model = create_model(opt)
+        # regular setup: load and print networks; create schedulers
+        model.setup(opt)
+        
+        opt.phase = 'train' # use train data to calibrate
+        if data_dir is not None:
+            opt.dataroot = data_dir
+        dataset = create_dataset(opt)
+        calibration_dataset = nncf.Dataset(dataset, transform_fn)
+        print('calibration dataset created')
+        
+        img_path = os.path.join(opt.dataroot, 'test_cli',fn_example)
+        img = Image.open(img_path).convert("RGB")
+        img_ts = transform(img)
+        real_sample_batch = img_ts
+        print('real example loaded')
+        
+        for net_name in model.model_names:
+            net = getattr(model,f'net{net_name}')
+            print(f'net {net_name} loaded')
+            # model initialized in this way does not have eval modifications baked in the model setup
+            net.eval() 
+            net = disable_batchnorm_tracking_stats(net)
+            
+            disable_inplace(net)
+            quantized_model = nncf.quantize(copy.deepcopy(net), calibration_dataset, 
+                                    target_device=nncf.TargetDevice.CPU,
+                                    #ignored_scope=ignored_scope,
+                                    subset_size=1000,
+                                    preset=nncf.QuantizationPreset.MIXED,
+                                    #preset='mixed', # Symmetric quantization of weights and asymmetric quantization of activations.
+                                    )
+            quantized_model = quantized_model.cpu()
+            int8_ir_model = ov.convert_model(quantized_model, example_input=real_sample_batch, input=real_sample_batch.shape)
+            ov.save_model(int8_ir_model, os.path.join(output_dir,f'{net_name}_int8.xml'))
+
+    else:
+        # load and update opt for qat
+        opt = Options(path_file=os.path.join(model_dir,'train_opt.txt'), mode='train')
+        opt.epoch = epoch
+        
+        # initialize both model and dataset on CPU to run quantizated model to avoid the issue pickling cuda streaming object from nncf.quantize()
+        # here we assume that the post training always happen on gpu id 0
+        opt.gpu_ids = [0]
+        opt.use_dp = True
+        opt.use_openvino = False # this flag currently is about whether we need to convert ovdict to tensor
+        opt.lr_g = 1e-4 # original training lr: 0.0002
+        opt.lr_gs = 1e-4 # original training lr: 0.0002
+        opt.continue_train = True
+        
+        # set dir for train and val
+        opt.phase = 'train'
+        opt.num_threads = 0 # multi-threads or processes to load the data creates background streaming that nncf.quantize cannot pickle
+        
+        if data_dir is not None:
+            opt.dataroot = data_dir
+        
+        for k,v in opt_args.items():
+            setattr(opt,k,v)
+        
+        dataset_gpu = create_dataset(opt)
+        opt.gpu_ids = []
+        dataset_cpu = create_dataset(opt) # used for calibration during quantization
+        print_options(opt)
+        
+        img_path = os.path.join(opt.dataroot, 'test_cli',fn_example)
+        img = Image.open(img_path).convert("RGB")
+        img_ts = transform(img)
+        real_sample_batch = img_ts
+        
+        # create a model given model and other options
+        model = create_model(opt)
+        # regular setup: load and print networks; create schedulers
+        model.setup(opt)
+        
+        calibration_dataset = nncf.Dataset(dataset_cpu, transform_fn)
+        
+        # generators of interest need to be quantized on cpu first, then move to gpu
+        # other nets (e.g., discriminators) can be directly moved to gpu
+        for net_name in model.model_names: 
+            net = getattr(model,f'net{net_name}')
+            net.eval()
+            net = disable_batchnorm_tracking_stats(net)
+            disable_inplace(net)
+            
+            if net_name in model.model_names_g + model.model_names_gs:
+                net = nncf.quantize(net, calibration_dataset, 
+                                    target_device=nncf.TargetDevice.CPU,
+                                    subset_size=1000,
+                                    preset=nncf.QuantizationPreset.MIXED,
+                                    )
+                net.train()
+            
+            setattr(model,f'net{net_name}',net.to('cuda:0'))
+        
+        for loss_name in [k for k in model.__dict__.keys() if k.startswith('criterion')]:
+            try:
+                setattr(model, loss_name, getattr(model,loss_name).to('cuda:0'))
+            except:
+                pass # some loss calculators do not have device info, e.g., smoothL1
+        # specify gpu device for qat
+        # currently we can only use 1 gpu
+        if '-1' in gpu_ids:
+            model.device = 'cpu' # used by model.set_input()
+            model.gpu_ids = [] # used by model.save_networks()
+        else:
+            model.device = f'cuda:{gpu_ids[0]}' # used by model.set_input()
+            model.gpu_ids = gpu_ids[0] #[0] # used by model.save_networks()
+        model.save_dir = output_dir # used by model.save_networks()
+        
+        #model.eval()
+        model.save_networks('openvinoInt8_beforeQAT')
+        #model.train()
+        
+        # create a visualizer that display/save images and plots
+        visualizer = Visualizer(opt)
+        # the total number of training iterations
+        total_iters = 0
+        epoch_base = 0
+        batch_size = 1
+        print_freq = 100
+        display_freq = 50
+        update_html_freq = 50
+        save_latest_freq = 100
+        save_epoch_freq = 2
+        monitor_image = None
+        display_id = 1
+        save_by_iter = False
+        continue_train = True
+    
+        # outer loop for different epochs; we save the model by <epoch_count>, <epoch_count>+<save_latest_freq>
+        for epoch in range(10):
+            print('epoch:',epoch)
+            # timer for entire epoch
+            epoch_start_time = time.time()
+            # timer for data loading per iteration
+            iter_data_time = time.time()
+            # the number of training iterations in current epoch, reset to 0 every epoch
+            epoch_iter = 0
+            # reset the visualizer: make sure it saves the results to HTML at least once every epoch
+            visualizer.reset()
+    
+            # inner loop within one epoch
+            for i, data in enumerate(dataset_gpu):
+                # timer for computation per iteration
+                iter_start_time = time.time()
+                if total_iters % print_freq == 0:
+                    t_data = iter_start_time - iter_data_time
+    
+                total_iters += batch_size
+                epoch_iter += batch_size
+                # unpack data from dataset and apply preprocessing
+                model.set_input(data)
+                # calculate loss functions, get gradients, update network weights
+                model.optimize_parameters()
+    
+                # display images on visdom and save images to a HTML file
+                if monitor_image is not None:
+                    if data['A_paths'][0].endswith(monitor_image):
+                        save_result = total_iters % update_html_freq == 0
+                        model.compute_visuals()
+                        visualizer.display_current_results({**model.get_current_visuals()}, epoch, save_result, filename=monitor_image)
+                else:
+                    if total_iters % display_freq == 0:
+                        save_result = total_iters % update_html_freq == 0
+                        model.compute_visuals()
+                        visualizer.display_current_results({**model.get_current_visuals()}, epoch, save_result, filename=data['A_paths'][0])
+    
+                # print training losses and save logging information to the disk
+                if total_iters % print_freq == 0:
+                    losses = model.get_current_losses() # get training losses
+                    
+                    t_comp = (time.time() - iter_start_time) / batch_size
+                    visualizer.print_current_losses(epoch, epoch_iter, {**losses}, t_comp, t_data)
+                    
+                    if display_id > 0:
+                        visualizer.plot_current_losses(epoch, float(epoch_iter) / len(dataset_gpu), {**losses})
+    
+                # cache our latest model every <save_latest_freq> iterations
+                if total_iters % save_latest_freq == 0:
+                    print('saving the latest model (epoch %d, total_iters %d)' % (epoch, total_iters))
+                    save_suffix = 'openvinoInt8_iter_%d' % total_iters if save_by_iter else 'openvinoInt8_latest'
+                    model.save_networks(save_suffix)
+    
+                iter_data_time = time.time()
+    
+            # cache our model every <save_epoch_freq> epochs
+            if epoch % save_epoch_freq == 0:
+                if continue_train and epoch == 0: # to not overwrite the loaded epoch
+                    pass
+                else:
+                    print('saving the model at the end of epoch %d, iters %d' % (epoch, total_iters))
+                    model.save_networks('openvinoInt8_latest')
+                    model.save_networks('openvinoInt8_'+str(epoch+epoch_base))
+    
+                #model.train() this is only needed if we do validation because during validation the model is switched to eval mode
+                t_comp = (time.time() - iter_start_time) / batch_size
+                visualizer.print_current_losses(epoch, epoch_iter, {**losses}, t_comp, t_data)
+                if display_id > 0:
+                    visualizer.plot_current_losses(epoch, float(epoch_iter) / len(dataset_gpu), {**losses})
+    
+            print('End of epoch %d / %d \t Time Taken: %d sec' % (
+                epoch, 10, time.time() - epoch_start_time))
+            # update learning rates at the end of every epoch.
+            model.update_learning_rate()
+            
+        # after post trianing is done, the model needs to be converted and saved in openvino's format
+        # so that the inference can benefit from openvino acceleration
+        for net_name in model.model_names_g + model.model_names_gs:
+            quantized_model = getattr(model,f'net{net_name}').to('cpu')
+            quantized_model.eval()
+            dummy_input = torch.randn(1, 3, 512, 512)
+            int8_ir_model = ov.convert_model(quantized_model, example_input=real_sample_batch, input=real_sample_batch.shape)
+            ov.save_model(int8_ir_model, os.path.join(model.save_dir,f'{net_name}_int8qat.xml'))
+
+@cli.command()
 @click.option('--input-dir', default='./Sample_Large_Tissues/', help='reads images from here')
 @click.option('--output-dir', help='saves results here.')
 @click.option('--tile-size', type=click.IntRange(min=1, max=None), required=True, help='tile size')
@@ -846,10 +1118,15 @@ def serialize(model_dir, output_dir, device, epoch, verbose):
 @click.option('--color-dapi', is_flag=True, help='color dapi image to produce the same coloring as in the paper')
 @click.option('--color-marker', is_flag=True, help='color marker image to produce the same coloring as in the paper')
 @click.option('--BtoA', is_flag=True, help='for models trained with unaligned dataset, this flag instructs to load generatorB instead of generatorA')
+@click.option('--openvino-mode', is_flag=True, help='use openvino model file(s)')
+@click.option('--openvino-suffix', type=str, default="", help='openvino model filename suffix to locate the files')
 def test(input_dir, output_dir, tile_size, model_dir, filename_pattern, gpu_ids, eager_mode, epoch,
-         seg_intermediate, seg_only, mod_only, color_dapi, color_marker, btoa):
+         seg_intermediate, seg_only, mod_only, color_dapi, color_marker, btoa,
+         openvino_mode, openvino_suffix):
     """Test trained models
     """
+    time_s = time.time()
+    
     output_dir = output_dir or input_dir
     ensure_exists(output_dir)
     
@@ -858,6 +1135,11 @@ def test(input_dir, output_dir, tile_size, model_dir, filename_pattern, gpu_ids,
         seg_intermediate = False
     elif seg_intermediate and seg_only:
         seg_intermediate = False
+    
+    if openvino_mode == True:
+        if eager_mode == True:
+            print('openvino mode is True, overwriting eager mode to False')
+            eager_mode = False
 
     if filename_pattern == '*':
         print('use all alowed files')
@@ -903,7 +1185,7 @@ def test(input_dir, output_dir, tile_size, model_dir, filename_pattern, gpu_ids,
     ) as bar:
         for filename in bar:
             img = Image.open(os.path.join(input_dir, filename)).convert('RGB')
-            images, scoring = infer_modalities(img, tile_size, model_dir, eager_mode, color_dapi, color_marker, opt, return_seg_intermediate=seg_intermediate, seg_only=seg_only, mod_only=mod_only, seg_weights=seg_weights)
+            images, scoring = infer_modalities(img, tile_size, model_dir, eager_mode, color_dapi, color_marker, opt, return_seg_intermediate=seg_intermediate, seg_only=seg_only, mod_only=mod_only, seg_weights=seg_weights, openvino_mode=openvino_mode, openvino_suffix=openvino_suffix)
 
             for name, i in images.items():
                 i.save(os.path.join(
@@ -917,6 +1199,7 @@ def test(input_dir, output_dir, tile_size, model_dir, filename_pattern, gpu_ids,
                         filename.replace('.' + filename.split('.')[-1], f'.json')
                 ), 'w') as f:
                     json.dump(scoring, f, indent=2)
+    print('Time elapsed:',time.time()-time_s)
 
 
 @cli.command()
