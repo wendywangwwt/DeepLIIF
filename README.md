@@ -199,6 +199,24 @@ deepliif serialize --model-dir /path/to/input/model/files
 * By default, for original DeepLIIF, the model files are expected to be located in `DeepLIIF/model-server/DeepLIIF_Latest_Model`.
 * If not specified, the serialized files will be saved to the same directory as the input model files.
 
+## Quantize Model for **CPU** Inference
+`deepliif quantize` command supports int8 model quantization from [OpenVINO](https://github.com/openvinotoolkit/openvino) framework. This feature requires additional packages (`openvino` and `nncf`). The quantized model can then be used by `deepliif test`. Example command:
+```
+deepliif quantize --model-dir /path/to/input/model/files 
+                  --output-dir /path/to/output/model/files
+```
+
+The quantized model typically exhibits degraded output quality compared to the original model. In our experiment with DeepLIIF model, int8 quantization leads to a slight decrease in final segmentation accuracy. You may try to restore the model performance using Quantization-Aware Training (QAT), which in NNCF's implementation is a [post-training technique](https://github.com/openvinotoolkit/nncf/blob/develop/docs/usage/training_time_compression/quantization_aware_training/Usage.md). The QAT in deepliif assumes **post-training runs on GPU**, though it targets a quantized model that is optimized for CPU inference.
+```
+deepliif quantize --model-dir /path/to/input/model/files 
+                  --output-dir /path/to/output/model/files
+                  --qat
+                  --gpu-ids 0
+                  
+```
+If you will use a different visdom server for QAT, pass `--opt-args '{"display_server":"<my-server>", "display_port":<port>}'` to override the settings loaded from the model training options file.
+
+
 ## Testing / Inference
 To test the model:
 ```
@@ -214,6 +232,7 @@ python test.py --dataroot /path/to/input/images
                --checkpoints_dir /path/to/model/files
                --name Model_Name
 ```
+
 * The latest version of the pretrained models can be downloaded [here](https://zenodo.org/record/4751737#.YKRTS0NKhH4).
 * The format of input images to `test.py` is the same as training/validation data, while that to `deepliif test` command is only the input modalities (e.g., only IHC for original DeepLIIF).
 * Use `deepliif test ... --eager-mode` for the raw model files, or serialize the model files as described above to run the serialized ones.
@@ -221,16 +240,20 @@ python test.py --dataroot /path/to/input/images
 * The test results will be saved to the specified output directory, which defaults to the input directory.
 * The tile size must be specified and is used to split the image into tiles for processing.  The tile size is based on the resolution (scan magnification) of the input image, and the recommended values are a tile size of 512 for 40x images, 256 for 20x, and 128 for 10x.  Note that the smaller the tile size, the longer inference will take.
 * Testing datasets can be downloaded from [Zenodo](https://zenodo.org/record/4751737#.YKRTS0NKhH4).
+* `python test.py` is essentially eager mode (load pytorch checkpoints), so it does not support serialized models or openvino models.
 
 **Test Command Options:**  
 In addition to the required parameters given above, the following optional parameters are available for `deepliif test`:
 * `--eager-mode` Run the original model files (instead of serialized model files).
+* `--openvino-mode` Use this flag to load OpenVINO quantized models (overrides `--eager-mode`).
+* `--openvino-suffix` The suffix of OpenVINO `xml` model files. If trained with `deepliif quantize` command, the suffix is either `int8` or `int8qat`.
 * `--seg-intermediate` Save the intermediate segmentation maps created for each modality.
 * `--seg-only` Save only the segmentation files, and do not infer images that are not needed.
 * `--mod-only` Save only the translated modality image; overwrites --seg-only and --seg-intermediate.
 * `--color-dapi` Color the inferred DAPI image.
 * `--color-marker` Color the inferred marker image.
 * `--BtoA` For models trained with unaligned dataset, this flag instructs the code to load generatorB instead of generatorA.
+
 
 **Whole Slide Image (WSI) Inference:**  
 For translation and segmentation of whole slide images, 
