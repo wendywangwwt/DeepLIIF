@@ -18,6 +18,8 @@ class DeepLIIFModel(BaseModel):
         if not hasattr(opt,'net_gs'):
             opt.net_gs = 'unet_512'
         
+        self.use_openvino = opt.use_openvino if hasattr(opt,'use_openvino') else False
+        
         self.seg_gen = opt.seg_gen
         self.seg_weights = opt.seg_weights
         self.loss_G_weights = opt.loss_G_weights
@@ -189,7 +191,7 @@ class DeepLIIFModel(BaseModel):
         # self.fake_B_4 = self.netG4(self.real_A)   # mpIF Ki67 image generator
         
         for i in range(self.opt.modalities_no):
-            if self.opt.use_openvino:
+            if self.use_openvino:
                 setattr(self,f'fake_B_{i+1}',ovdict_to_tensor(getattr(self,f'netG{i+1}')(self.real_A)))
             else:
                 setattr(self,f'fake_B_{i+1}',getattr(self,f'netG{i+1}')(self.real_A))
@@ -209,12 +211,12 @@ class DeepLIIFModel(BaseModel):
         if self.seg_gen:
             for i,model_name in enumerate(self.model_names_gs):
                 if i == 0:
-                    if self.opt.use_openvino:
+                    if self.use_openvino:
                         setattr(self,f'fake_B_{self.mod_id_seg}_{i}',ovdict_to_tensor(getattr(self,f'net{model_name}')(self.real_A)))
                     else:
                         setattr(self,f'fake_B_{self.mod_id_seg}_{i}',getattr(self,f'net{model_name}')(self.real_A))
                 else:
-                    if self.opt.use_openvino:
+                    if self.use_openvino:
                         setattr(self,f'fake_B_{self.mod_id_seg}_{i}',ovdict_to_tensor(getattr(self,f'net{model_name}')(getattr(self,f'fake_B_{i}'))))
                     else:
                         setattr(self,f'fake_B_{self.mod_id_seg}_{i}',getattr(self,f'net{model_name}')(getattr(self,f'fake_B_{i}')))
