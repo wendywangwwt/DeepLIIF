@@ -838,14 +838,17 @@ def serialize(model_dir, output_dir, device, epoch, verbose):
 @click.option('--data-dir', help='path to calibration dataset (also used to qat post training); if not set, use the training data path')
 #@click.option('--tile-size', type=int, default=None, help='tile size')
 @click.option('--epoch', default='latest', type=str, help='epoch to load and serialize')
+@click.option('--save-fp16', is_flag=True, help='also save a openvino fp16 model')
+@click.option('--save-fp32', is_flag=True, help='also save a openvino fp32 model')
 @click.option('--qat', is_flag=True, help='use quantization-aware training; current training runs on GPU 0')
 @click.option('--gpu-ids', type=int, multiple=True, help='only for qat: gpu-ids 0 gpu-ids 1 or gpu-ids -1 for CPU')
 @click.option('--fn-example', default=None, type=str, help='the real image example used in openvino.convert_model() for better results; needs to be available under --data-dir; if not, use the first one')
 @click.option('--opt-args', default="{}", type=str, help='dictionary-format opt key-value pairs to overwrite the loaded values from train_opt.txt, for example --opt-args {"display_server":"https://my-server", "display_port":8097, "display_env":"openvino_int8qat"}')
 @click.option('--verbose', default=0, type=int,help='saves results here.')
-def quantize(model_dir, output_dir, data_dir, epoch, qat, gpu_ids, fn_example, opt_args, verbose):
+def quantize(model_dir, output_dir, data_dir, epoch, save_fp16, save_fp32, qat, gpu_ids, fn_example, opt_args, verbose):
     """
-    Quantize DeepLIIF models using Openvino.
+    Quantize DeepLIIF models using Openvino (INT8).
+    Optionally save a fp16 and/or fp32 openvino model copy.
     Mostly created for quantization-aware training: apply an additional few
     epochs of training to restore the degraded performance.
     """
@@ -912,10 +915,16 @@ def quantize(model_dir, output_dir, data_dir, epoch, qat, gpu_ids, fn_example, o
             net = disable_batchnorm_tracking_stats(net)
             
             disable_inplace(net)
+            if save_fp16 or save_fp32:
+                fp_ir_model = ov.convert_model(net, example_input=real_sample_batch, input=real_sample_batch.shape)
+                if save_fp16:
+                    ov.save_model(fp_ir_model, os.path.join(output_dir,f'{net_name}_fp16.xml'))
+                if save_fp32:
+                    ov.save_model(fp_ir_model, os.path.join(output_dir,f'{net_name}_fp32.xml'), compress_to_fp16=False)
             quantized_model = nncf.quantize(copy.deepcopy(net), calibration_dataset, 
                                     target_device=nncf.TargetDevice.CPU,
                                     #ignored_scope=ignored_scope,
-                                    subset_size=1000,
+                                    subset_size=min(len(dataset),1000),
                                     preset=nncf.QuantizationPreset.MIXED,
                                     #preset='mixed', # Symmetric quantization of weights and asymmetric quantization of activations.
                                     )
@@ -972,10 +981,17 @@ def quantize(model_dir, output_dir, data_dir, epoch, qat, gpu_ids, fn_example, o
             net = disable_batchnorm_tracking_stats(net)
             disable_inplace(net)
             
+            if save_fp16 or save_fp32:
+                fp_ir_model = ov.convert_model(net, example_input=real_sample_batch, input=real_sample_batch.shape)
+                if save_fp16:
+                    ov.save_model(fp_ir_model, os.path.join(output_dir,f'{net_name}_fp16.xml'))
+                if save_fp32:
+                    ov.save_model(fp_ir_model, os.path.join(output_dir,f'{net_name}_fp32.xml'), compress_to_fp16=False)
+            
             if net_name in model.model_names_g + model.model_names_gs:
                 net = nncf.quantize(net, calibration_dataset, 
                                     target_device=nncf.TargetDevice.CPU,
-                                    subset_size=1000,
+                                    subset_size=min(len(dataset_cpu),1000),
                                     preset=nncf.QuantizationPreset.MIXED,
                                     )
                 net.train()
