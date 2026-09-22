@@ -202,19 +202,32 @@ deepliif serialize --model-dir /path/to/input/model/files
 ## Quantize Model for **CPU** Inference
 `deepliif quantize` command supports int8 model quantization from [OpenVINO](https://github.com/openvinotoolkit/openvino) framework. This feature requires additional packages (`openvino` and `nncf`). The quantized model can then be used by `deepliif test`. Example command:
 ```
-deepliif quantize --model-dir /path/to/input/model/files 
+deepliif quantize --model-dir /path/to/input/model/files
+                  --data-dir /path/to/input/data/files
                   --output-dir /path/to/output/model/files
 ```
+NNCF's quantization requires a **calibration dataset** to estimate quantization layer parameters (up to 1000 images will be used). If `--data-dir` is not provided, we use the model's training data directory recorded in the training options file.
 
 The quantized model typically exhibits degraded output quality compared to the original model. In our experiment with DeepLIIF model, int8 quantization leads to a slight decrease in final segmentation accuracy. You may try to restore the model performance using Quantization-Aware Training (QAT), which in NNCF's implementation is a [post-training technique](https://github.com/openvinotoolkit/nncf/blob/develop/docs/usage/training_time_compression/quantization_aware_training/Usage.md). The QAT in deepliif assumes **post-training runs on GPU**, though it targets a quantized model that is optimized for CPU inference.
 ```
 deepliif quantize --model-dir /path/to/input/model/files 
+                  --data-dir /path/to/input/data/files
                   --output-dir /path/to/output/model/files
                   --qat
                   --gpu-ids 0
                   
 ```
-If you will use a different visdom server for QAT, pass `--opt-args '{"display_server":"<my-server>", "display_port":<port>}'` to override the settings loaded from the model training options file.
+Note that QAT has a set of hard-coded hyperparameters for post-training, including:
+- gpu id fixed to 0 (1-gpu training)
+- learning rate for both translation generators and segmentation generators is 1e-4 (original default training lr: 0.0002)
+- data loader's number of threads is 0 to avoid issue with nncf's pickle operation
+- the post-training gets 10 epochs, and checkpoints are saved every 2 epochs
+- batch size is 1
+
+**Quantize Command Options**
+* `--save-fp16` Save openvino's fp16 model file as well.
+* `--save-fp32` Save openvino's fp32 model file as well.
+* `--opt-args` If you will use a different visdom server for **QAT**, pass `--opt-args '{"display_server":"<my-server>", "display_port":<port>}'` to override the settings loaded from the model training options file.
 
 
 ## Testing / Inference
